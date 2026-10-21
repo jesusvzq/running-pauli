@@ -7,7 +7,7 @@ const ctx = canvas.getContext('2d');
 const FACE_SRC = null;
 
 const COLORS = {
-  bg: '#f7f7f7',
+  bg: '#a8d8f0',
   ink: '#535353',
   skin: '#f5c9a0',
   shirt: '#3b6fd8',
@@ -15,10 +15,10 @@ const COLORS = {
   glass: '#9a5a12',
   cap: '#e0b020',
   label: '#f3e3b0',
-  cloud: '#e4e4e4',
-  pit: '#dcdcdc',
-  heart: '#e0334c',
-  heartEmpty: '#c9c9c9',
+  cloud: '#ffffff',
+  pit: '#ff5a1f',
+  ground: '#a6e3a1',
+  shine: '#dcdcdc',
   cat: '#f0a050',
   catDark: '#b8702a',
 };
@@ -79,6 +79,8 @@ function drawClouds() {
 function drawGround() {
   // Ground line in segments, with a gap (and a darker pit) wherever there is a hole.
   const holes = state.pits.map((p) => [p.x, p.x + p.w]).sort((a, b) => a[0] - b[0]);
+  ctx.fillStyle = COLORS.ground;
+  ctx.fillRect(0, L.GROUND_Y + 1, L.W, L.H - L.GROUND_Y - 1);
   ctx.fillStyle = COLORS.pit;
   for (const [a, b] of holes) ctx.fillRect(a, L.GROUND_Y + 1, b - a, L.FALL_DEPTH);
 
@@ -118,7 +120,7 @@ function drawPlatform(p) {
   ctx.beginPath();
   ctx.roundRect(p.x, y, p.w, 8, 3);
   ctx.fill();
-  ctx.fillStyle = COLORS.pit;
+  ctx.fillStyle = COLORS.shine;
   ctx.fillRect(p.x + 4, y + 5, p.w - 8, 1.5);
 }
 
@@ -291,41 +293,24 @@ function drawCat(c) {
   ctx.stroke();
 }
 
-function heartPath(cx, cy, r) {
-  ctx.beginPath();
-  ctx.moveTo(cx, cy + r * 0.9);
-  ctx.bezierCurveTo(cx - r * 1.5, cy - r * 0.1, cx - r * 0.8, cy - r * 1.1, cx, cy - r * 0.35);
-  ctx.bezierCurveTo(cx + r * 0.8, cy - r * 1.1, cx + r * 1.5, cy - r * 0.1, cx, cy + r * 0.9);
-  ctx.closePath();
-}
-
-// Bottom-left, in the strip under the ground: one heart per life, lost ones as grey outlines.
-function drawHearts() {
-  const r = 12;
-  for (let i = 0; i < L.MAX_LIVES; i++) {
-    heartPath(24 + i * 34, L.H - 20, r);
-    if (i < state.lives) {
-      ctx.fillStyle = COLORS.heart;
-      ctx.fill();
-    } else {
-      ctx.strokeStyle = COLORS.heartEmpty;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-  }
-}
-
 const pad = (n) => String(n).padStart(5, '0');
 
-function drawHud() {
-  // Bottom-right, vertically centred on the hearts.
-  ctx.save();
-  ctx.font = 'bold 16px "Courier New", monospace';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = COLORS.ink;
-  ctx.fillText(`HI ${pad(hi)}  ${pad(L.getScore(state))}`, L.W - 16, L.H - 20);
-  ctx.restore();
+// Hearts and score live in an HTML bar above the canvas; only touch the DOM when the text changes.
+const heartEls = [...document.querySelectorAll('#hearts .heart')];
+const scoreEl = document.getElementById('score');
+let shownLives = -1;
+let shownScore = '';
+
+function updateHud() {
+  if (state.lives !== shownLives) {
+    shownLives = state.lives;
+    heartEls.forEach((el, i) => el.classList.toggle('lost', i >= state.lives));
+  }
+  const text = `HI ${pad(hi)}  ${pad(L.getScore(state))}`;
+  if (text !== shownScore) {
+    shownScore = text;
+    scoreEl.textContent = text;
+  }
 }
 
 function drawMessage(title, subtitle) {
@@ -350,8 +335,6 @@ function draw() {
   for (const o of state.obstacles) drawBottle(o);
   for (const c of state.cats) drawCat(c);
   drawPlayer();
-  drawHearts();
-  drawHud();
   if (state.phase === 'ready') drawMessage('RUNNING PAULI', START_HINT);
   if (state.phase === 'gameover') drawMessage('GAME OVER', RESTART_HINT);
 }
@@ -375,6 +358,7 @@ function frame(ts) {
   prevPhase = state.phase;
 
   draw();
+  updateHud();
   requestAnimationFrame(frame);
 }
 

@@ -26,16 +26,50 @@ body {
   justify-content: center;
 }
 
-/* Logical canvas is 800x340 (40:17); scale it to the largest size that fits. */
+/* The canvas is 800x420 logical px with a 48px HUD bar above it (800:468); scale the whole thing to the
+   largest size that fits. Sizes inside are in cqw so they follow the scale. */
+#wrap {
+  container-type: inline-size;
+  width: min(100vw, calc(100vh * 800 / 468));
+  aspect-ratio: 800 / 468;
+}
+
+#hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: calc(100cqw * 48 / 800);
+  padding: 0 2cqw;
+  color: #535353;
+  font: bold 2cqw "Courier New", monospace;
+}
+
+#hearts {
+  display: flex;
+  gap: 0.6cqw;
+}
+
+.heart {
+  width: 3.6cqw;
+  height: 3.6cqw;
+  fill: #e0334c;
+}
+
+.heart.lost {
+  fill: none;
+  stroke: #c9c9c9;
+  stroke-width: 2;
+}
+
 canvas {
   display: block;
-  width: min(100vw, calc(100vh * 40 / 17));
-  aspect-ratio: 40 / 17;
+  width: 100%;
+  aspect-ratio: 800 / 420;
   height: auto;
 }
 
 @supports (height: 100dvh) {
-  canvas {
-    width: min(100vw, calc(100dvh * 40 / 17));
+  #wrap {
+    width: min(100vw, calc(100dvh * 800 / 468));
   }
 }

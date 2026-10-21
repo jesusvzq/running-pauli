@@ -2,8 +2,9 @@
 // all times are seconds. `y` is the player's height above the ground (up is positive).
 
 export const W = 800;
-export const H = 340; // 300 of playfield + a strip under the ground for the hearts
-export const GROUND_Y = 250;
+// Room above the ground for the highest jump (off the high platform: 140 + 133 + 60 body) and below it for a fall into a hole.
+export const H = 420;
+export const GROUND_Y = 360;
 
 export const GRAVITY = 2400;
 export const JUMP_V = 800;
