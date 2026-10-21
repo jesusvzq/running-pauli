@@ -1,0 +1,41 @@
+:root {
+  --bg: #f7f7f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Logical canvas is 800x300 (8:3); scale it to the largest size that fits. */
+canvas {
+  display: block;
+  width: min(100vw, calc(100vh * 8 / 3));
+  aspect-ratio: 8 / 3;
+  height: auto;
+}
+
+@supports (height: 100dvh) {
+  canvas {
+    width: min(100vw, calc(100dvh * 8 / 3));
+  }
+}
