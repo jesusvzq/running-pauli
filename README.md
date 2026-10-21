@@ -1,6 +1,6 @@
 # Running Pauli
 
-A Chrome-dino-style endless runner: jump over beer bottles. Mobile friendly (tap to jump), also plays with mouse click or Space / Up / W.
+A Chrome-dino-style endless runner: jump over beer bottles. From score 300 the ground also has big holes, wider than any jump, with a flying platform over each: jump onto the platform, then jump (or run) off the far end. Falling in ends the game. Mobile friendly (tap to jump), also plays with mouse click or Space / Up / W.
 
 Vanilla HTML + JS + canvas. No dependencies and no build step.
 
@@ -29,7 +29,7 @@ Then open `http://<that-ip>:8000` on the phone.
 node --test
 ```
 
-Covers the game logic in `logic.js`: jump physics, collisions, spawn spacing, speed cap, restart lockout. It also includes a bot that plays 2 minutes on 20 seeds, to prove every bottle layout can be jumped.
+Covers the game logic in `logic.js`: jump physics, collisions, spawn spacing, speed cap, restart lockout, holes and platforms. It also includes a bot that plays 2 minutes on 20 seeds, to prove every bottle and hole layout can be cleared.
 
 ## Files
 

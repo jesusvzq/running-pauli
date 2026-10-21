@@ -28,6 +28,20 @@ export const BOTTLE_TYPES = [
 ];
 export const BOTTLE_SPACING = 4;
 
+// Holes and flying platforms appear from this score on.
+export const PITS_FROM_SCORE = 300;
+export const PIT_CHANCE = 0.35;
+export const PLATFORM_H = 75; // top of a platform above the ground; the jump peaks at 133
+export const PLATFORM_PRE = 50; // platform overhang before / after the hole
+export const PLATFORM_POST = 60;
+export const HOLE_MARGIN = 120; // extra hole width beyond the ground-jump distance
+export const HOLE_RANDOM = 100;
+export const FALL_DEPTH = H - GROUND_Y; // feet below the ground by this much = out of the screen = dead
+// Time to land on the ground again after jumping off a platform.
+export const PLATFORM_AIRTIME = (JUMP_V + Math.sqrt(JUMP_V * JUMP_V + 2 * GRAVITY * PLATFORM_H)) / GRAVITY;
+
+const EPS = 1e-6;
+
 export const FIRST_OBSTACLE_AT = 400;
 export const SPAWN_X = W + 20;
 const GAP_MARGIN = 140;
@@ -45,6 +59,7 @@ export function createState(rng = Math.random) {
     vy: 0,
     onGround: true,
     obstacles: [],
+    pits: [],
     untilSpawn: FIRST_OBSTACLE_AT,
   };
 }
@@ -58,6 +73,7 @@ export function start(state) {
     vy: 0,
     onGround: true,
     obstacles: [],
+    pits: [],
     untilSpawn: FIRST_OBSTACLE_AT,
   });
 }
@@ -105,6 +121,38 @@ export function spawnGroup(state) {
   state.untilSpawn = width + gap;
 }
 
+// A hole {x, w} with a one-way platform {px, pw} (at PLATFORM_H) floating over it. The hole is
+// wider than a ground jump, so the only way across is to land on the platform and jump off it.
+export function spawnPit(state) {
+  const { rng } = state;
+  const w = state.speed * AIRTIME + HOLE_MARGIN + rng() * HOLE_RANDOM;
+  const pw = PLATFORM_PRE + w + PLATFORM_POST;
+  state.pits.push({ x: SPAWN_X + PLATFORM_PRE, w, px: SPAWN_X, pw });
+  const gap = state.speed * PLATFORM_AIRTIME + GAP_MARGIN + rng() * GAP_RANDOM;
+  state.untilSpawn = pw + gap;
+}
+
+export function spawn(state) {
+  const pitsOn = state.distance >= PITS_FROM_SCORE / SCORE_PER_PX;
+  if (pitsOn && state.rng() < PIT_CHANCE) spawnPit(state);
+  else spawnGroup(state);
+}
+
+function feetRange() {
+  return [PLAYER.x + HIT_PLAYER.insetX, PLAYER.x + PLAYER.w - HIT_PLAYER.insetX];
+}
+
+// Height of the highest surface the player can stand on, coming from height `fromY`.
+// Ground counts unless the whole foot is over a hole (and once below ground level you keep falling);
+// platforms are one-way: they only count if the feet were at or above their top.
+export function supportHeight(state, fromY) {
+  const [left, right] = feetRange();
+  let floor = -Infinity;
+  if (fromY >= -EPS && !state.pits.some((p) => left >= p.x && right <= p.x + p.w)) floor = 0;
+  if (fromY >= PLATFORM_H - EPS && state.pits.some((p) => right > p.px && left < p.px + p.pw)) floor = PLATFORM_H;
+  return floor;
+}
+
 export function collides(state) {
   const left = PLAYER.x + HIT_PLAYER.insetX;
   const right = PLAYER.x + PLAYER.w - HIT_PLAYER.insetX;
@@ -126,23 +174,35 @@ export function step(state, rawDt) {
   const dx = state.speed * dt;
   state.distance += dx;
 
+  for (const o of state.obstacles) o.x -= dx;
+  state.obstacles = state.obstacles.filter((o) => o.x + o.w > -20);
+  for (const p of state.pits) {
+    p.x -= dx;
+    p.px -= dx;
+  }
+  state.pits = state.pits.filter((p) => p.px + p.pw > -20);
+
+  // Standing on something that has scrolled away: start falling.
+  if (state.onGround && state.y > supportHeight(state, state.y) + EPS) {
+    state.onGround = false;
+    state.vy = 0;
+  }
   if (!state.onGround) {
+    const prevY = state.y;
     state.y += state.vy * dt - 0.5 * GRAVITY * dt * dt;
     state.vy -= GRAVITY * dt;
-    if (state.y <= 0) {
-      state.y = 0;
+    const floor = supportHeight(state, prevY);
+    if (state.vy <= 0 && state.y <= floor) {
+      state.y = floor;
       state.vy = 0;
       state.onGround = true;
     }
   }
 
-  for (const o of state.obstacles) o.x -= dx;
-  state.obstacles = state.obstacles.filter((o) => o.x + o.w > -20);
-
   state.untilSpawn -= dx;
-  if (state.untilSpawn <= 0) spawnGroup(state);
+  if (state.untilSpawn <= 0) spawn(state);
 
-  if (collides(state)) {
+  if (collides(state) || state.y < -FALL_DEPTH) {
     state.phase = 'gameover';
     state.overAt = state.time;
   }

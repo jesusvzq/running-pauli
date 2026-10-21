@@ -16,6 +16,7 @@ const COLORS = {
   cap: '#e0b020',
   label: '#f3e3b0',
   cloud: '#e4e4e4',
+  pit: '#dcdcdc',
 };
 
 const HI_KEY = 'running-pauli:hi';
@@ -72,19 +73,49 @@ function drawClouds() {
 }
 
 function drawGround() {
+  // Ground line in segments, with a gap (and a darker pit) wherever there is a hole.
+  const holes = state.pits.map((p) => [p.x, p.x + p.w]).sort((a, b) => a[0] - b[0]);
+  ctx.fillStyle = COLORS.pit;
+  for (const [a, b] of holes) ctx.fillRect(a, L.GROUND_Y + 1, b - a, L.H - L.GROUND_Y);
+
   ctx.strokeStyle = COLORS.ink;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, L.GROUND_Y + 1);
-  ctx.lineTo(L.W, L.GROUND_Y + 1);
+  let x = 0;
+  for (const [a, b] of holes) {
+    if (a > x) {
+      ctx.moveTo(x, L.GROUND_Y + 1);
+      ctx.lineTo(Math.min(a, L.W), L.GROUND_Y + 1);
+    }
+    ctx.moveTo(a, L.GROUND_Y + 1);
+    ctx.lineTo(a, L.H);
+    ctx.moveTo(b, L.GROUND_Y + 1);
+    ctx.lineTo(b, L.H);
+    x = Math.max(x, b);
+  }
+  if (x < L.W) {
+    ctx.moveTo(x, L.GROUND_Y + 1);
+    ctx.lineTo(L.W, L.GROUND_Y + 1);
+  }
   ctx.stroke();
 
   ctx.fillStyle = COLORS.ink;
   for (let i = 0; i < 36; i++) {
-    const x = mod(i * 83 - state.distance, L.W + 20) - 10;
+    const sx = mod(i * 83 - state.distance, L.W + 20) - 10;
+    if (holes.some(([a, b]) => sx + 6 > a && sx < b)) continue;
     const y = L.GROUND_Y + 10 + ((i * 37) % 28);
-    ctx.fillRect(x, y, 2 + (i % 3) * 2, 2);
+    ctx.fillRect(sx, y, 2 + (i % 3) * 2, 2);
   }
+}
+
+function drawPlatform(p) {
+  const y = L.GROUND_Y - L.PLATFORM_H;
+  ctx.fillStyle = COLORS.ink;
+  ctx.beginPath();
+  ctx.roundRect(p.px, y, p.pw, 8, 3);
+  ctx.fill();
+  ctx.fillStyle = COLORS.pit;
+  ctx.fillRect(p.px + 4, y + 5, p.pw - 8, 1.5);
 }
 
 // The face slot. Draws the friend's photo clipped to a circle once FACE_SRC is set and loaded,
@@ -252,6 +283,7 @@ function draw() {
   ctx.fillRect(0, 0, L.W, L.H);
   drawClouds();
   drawGround();
+  for (const p of state.pits) drawPlatform(p);
   for (const o of state.obstacles) drawBottle(o);
   drawPlayer();
   drawHud();
