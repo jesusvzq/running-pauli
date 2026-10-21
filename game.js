@@ -16,7 +16,9 @@ const COLORS = {
   cap: '#e0b020',
   label: '#f3e3b0',
   cloud: '#ffffff',
-  pit: '#ff5a1f',
+  lavaTop: '#ffd23a',
+  lavaMid: '#ff6a1a',
+  lavaDeep: '#b81400',
   ground: '#a6e3a1',
   shine: '#dcdcdc',
   cat: '#f0a050',
@@ -76,13 +78,60 @@ function drawClouds() {
   }
 }
 
+// Animated lava: a gradient, a wavy glowing surface, drifting hot blobs and rising bubbles.
+function drawLava(a, b) {
+  const t = performance.now() / 1000;
+  const top = L.GROUND_Y + 1;
+  const w = b - a;
+  const grad = ctx.createLinearGradient(0, top, 0, top + L.FALL_DEPTH);
+  grad.addColorStop(0, COLORS.lavaTop);
+  grad.addColorStop(0.35, COLORS.lavaMid);
+  grad.addColorStop(1, COLORS.lavaDeep);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(a, top, w, L.FALL_DEPTH);
+  ctx.clip();
+  ctx.fillStyle = grad;
+  ctx.fillRect(a, top, w, L.FALL_DEPTH);
+
+  // Drifting hot blobs.
+  ctx.fillStyle = 'rgba(255, 210, 60, 0.55)';
+  for (let i = 0; i < Math.max(2, Math.floor(w / 40)); i++) {
+    const bx = a + mod(i * 53 + t * (14 + (i % 3) * 6), w);
+    const by = top + 14 + ((i * 17) % 28) + Math.sin(t * 1.5 + i) * 4;
+    ctx.beginPath();
+    ctx.ellipse(bx, by, 9 + (i % 3) * 3, 4 + (i % 2) * 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Bubbles rising and popping at the surface.
+  ctx.fillStyle = COLORS.lavaTop;
+  for (let i = 0; i < Math.max(2, Math.floor(w / 50)); i++) {
+    const phase = mod(t * 0.6 + i * 0.37, 1);
+    const bx = a + 10 + mod(i * 71, Math.max(1, w - 20));
+    const by = top + L.FALL_DEPTH - phase * (L.FALL_DEPTH + 2);
+    ctx.beginPath();
+    ctx.arc(bx, by, 2 + (i % 3), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Wavy bright surface.
+  ctx.beginPath();
+  ctx.moveTo(a, top);
+  for (let x = 0; x <= w; x += 4) ctx.lineTo(a + x, top + 3 + Math.sin(x * 0.18 + t * 4) * 2);
+  ctx.lineTo(b, top);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.lavaTop;
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawGround() {
   // Ground line in segments, with a gap (and a darker pit) wherever there is a hole.
   const holes = state.pits.map((p) => [p.x, p.x + p.w]).sort((a, b) => a[0] - b[0]);
   ctx.fillStyle = COLORS.ground;
   ctx.fillRect(0, L.GROUND_Y + 1, L.W, L.H - L.GROUND_Y - 1);
-  ctx.fillStyle = COLORS.pit;
-  for (const [a, b] of holes) ctx.fillRect(a, L.GROUND_Y + 1, b - a, L.FALL_DEPTH);
+  for (const [a, b] of holes) drawLava(a, b);
 
   ctx.strokeStyle = COLORS.ink;
   ctx.lineWidth = 2;
@@ -232,6 +281,60 @@ function drawPlayer() {
   ctx.lineCap = 'butt';
 }
 
+// Glass shards flying off a bottle that was hit.
+let shards = [];
+
+function shatter(o) {
+  const y = L.GROUND_Y - o.h;
+  for (let i = 0; i < 16; i++) {
+    shards.push({
+      x: o.x + Math.random() * o.w,
+      y: y + Math.random() * o.h,
+      vx: (Math.random() - 0.6) * 320,
+      vy: -120 - Math.random() * 260,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 16,
+      size: 3 + Math.random() * 5,
+      life: 0.7 + Math.random() * 0.4,
+      age: 0,
+      light: i % 3 === 0,
+    });
+  }
+}
+
+function updateShards(dt) {
+  for (const p of shards) {
+    p.age += dt;
+    p.vy += 900 * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.rot += p.vr * dt;
+    if (p.y > L.GROUND_Y - 1 && p.vy > 0) {
+      p.y = L.GROUND_Y - 1;
+      p.vy *= -0.35;
+      p.vx *= 0.6;
+    }
+  }
+  shards = shards.filter((p) => p.age < p.life);
+}
+
+function drawShards() {
+  for (const p of shards) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - p.age / p.life);
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.light ? COLORS.label : COLORS.glass;
+    ctx.beginPath();
+    ctx.moveTo(-p.size, p.size * 0.6);
+    ctx.lineTo(p.size, 0);
+    ctx.lineTo(-p.size * 0.3, -p.size * 0.8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 function drawBottle(o) {
   const x = o.x;
   const y = L.GROUND_Y - o.h;
@@ -335,6 +438,7 @@ function draw() {
   for (const o of state.obstacles) drawBottle(o);
   for (const c of state.cats) drawCat(c);
   drawPlayer();
+  drawShards();
   if (state.phase === 'ready') drawMessage('RUNNING PAULI', START_HINT);
   if (state.phase === 'gameover') drawMessage('GAME OVER', RESTART_HINT);
 }
@@ -345,8 +449,16 @@ let last = null;
 let prevPhase = state.phase;
 
 function frame(ts) {
-  if (last !== null) L.step(state, (ts - last) / 1000);
+  const bottlesBefore = state.obstacles;
+  const dt = last === null ? 0 : (ts - last) / 1000;
+  if (last !== null) L.step(state, dt);
   last = ts;
+
+  // A bottle that vanished while still on screen was hit (off-screen ones are dropped further left).
+  for (const o of bottlesBefore) {
+    if (!state.obstacles.includes(o) && o.x > 0) shatter(o);
+  }
+  updateShards(dt);
 
   if (prevPhase !== 'gameover' && state.phase === 'gameover') {
     const score = L.getScore(state);
