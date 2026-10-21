@@ -532,11 +532,21 @@ function drawClubSign(x, w, top) {
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#6f757c';
     ctx.strokeText(ch, 0, 0);
-    ctx.fillStyle = '#fbfbfb';
+    // neon face: each letter cycles its own hue, with a glow and an occasional flicker
+    ctx.fillStyle = clubNeon(i, 60);
+    ctx.shadowColor = clubNeon(i, 55);
+    ctx.shadowBlur = 14 + 6 * Math.sin(performance.now() / 180 + i);
     ctx.fillText(ch, 0, 0);
     ctx.restore();
   });
   ctx.restore();
+}
+
+// Rotating neon colour for letter i; the offset per letter makes the colours chase along the sign.
+function clubNeon(i, light) {
+  const t = performance.now() / 1000;
+  const flicker = Math.sin(t * 23 + i * 5) > 0.97 ? 25 : 0;
+  return `hsl(${(t * 90 + i * 51) % 360}, 100%, ${light - flicker}%)`;
 }
 
 function drawClub(c) {
@@ -577,10 +587,16 @@ function drawClub(c) {
   drawDoor(x + pillar, top + 124, w - pillar * 2, h - 124 - 4);
 
   // vertical letters engraved on the right granite pillar, as in the photo
-  ctx.fillStyle = '#b9c0cc';
   ctx.font = 'bold 13px "Arial Black", sans-serif';
   ctx.textAlign = 'center';
-  [...'HOLIDAY'].forEach((ch, i) => ctx.fillText(ch, x + w - pillar / 2, top + 148 + i * 16));
+  ctx.save();
+  [...'HOLIDAY'].forEach((ch, i) => {
+    ctx.fillStyle = clubNeon(i + 3, 70);
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 8;
+    ctx.fillText(ch, x + w - pillar / 2, top + 148 + i * 16);
+  });
+  ctx.restore();
 
   // curved stainless-steel canopy carrying the sign
   const g = ctx.createLinearGradient(0, top + 30, 0, top + 124);
