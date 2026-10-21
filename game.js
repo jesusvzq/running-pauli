@@ -17,6 +17,8 @@ const COLORS = {
   label: '#f3e3b0',
   cloud: '#e4e4e4',
   pit: '#dcdcdc',
+  heart: '#e0334c',
+  heartEmpty: '#c9c9c9',
 };
 
 const HI_KEY = 'running-pauli:hi';
@@ -76,7 +78,7 @@ function drawGround() {
   // Ground line in segments, with a gap (and a darker pit) wherever there is a hole.
   const holes = state.pits.map((p) => [p.x, p.x + p.w]).sort((a, b) => a[0] - b[0]);
   ctx.fillStyle = COLORS.pit;
-  for (const [a, b] of holes) ctx.fillRect(a, L.GROUND_Y + 1, b - a, L.H - L.GROUND_Y);
+  for (const [a, b] of holes) ctx.fillRect(a, L.GROUND_Y + 1, b - a, L.FALL_DEPTH);
 
   ctx.strokeStyle = COLORS.ink;
   ctx.lineWidth = 2;
@@ -88,9 +90,9 @@ function drawGround() {
       ctx.lineTo(Math.min(a, L.W), L.GROUND_Y + 1);
     }
     ctx.moveTo(a, L.GROUND_Y + 1);
-    ctx.lineTo(a, L.H);
+    ctx.lineTo(a, L.GROUND_Y + L.FALL_DEPTH);
     ctx.moveTo(b, L.GROUND_Y + 1);
-    ctx.lineTo(b, L.H);
+    ctx.lineTo(b, L.GROUND_Y + L.FALL_DEPTH);
     x = Math.max(x, b);
   }
   if (x < L.W) {
@@ -256,13 +258,41 @@ function drawBottle(o) {
   ctx.fillRect(x + w * 0.18, y + h * 0.42, 2, h * 0.5);
 }
 
+function heartPath(cx, cy, r) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + r * 0.9);
+  ctx.bezierCurveTo(cx - r * 1.5, cy - r * 0.1, cx - r * 0.8, cy - r * 1.1, cx, cy - r * 0.35);
+  ctx.bezierCurveTo(cx + r * 0.8, cy - r * 1.1, cx + r * 1.5, cy - r * 0.1, cx, cy + r * 0.9);
+  ctx.closePath();
+}
+
+// Bottom-left, in the strip under the ground: one heart per life, lost ones as grey outlines.
+function drawHearts() {
+  const r = 12;
+  for (let i = 0; i < L.MAX_LIVES; i++) {
+    heartPath(24 + i * 34, L.H - 20, r);
+    if (i < state.lives) {
+      ctx.fillStyle = COLORS.heart;
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = COLORS.heartEmpty;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+}
+
 const pad = (n) => String(n).padStart(5, '0');
 
 function drawHud() {
+  // Bottom-right, vertically centred on the hearts.
+  ctx.save();
   ctx.font = 'bold 16px "Courier New", monospace';
   ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
   ctx.fillStyle = COLORS.ink;
-  ctx.fillText(`HI ${pad(hi)}  ${pad(L.getScore(state))}`, L.W - 16, 28);
+  ctx.fillText(`HI ${pad(hi)}  ${pad(L.getScore(state))}`, L.W - 16, L.H - 20);
+  ctx.restore();
 }
 
 function drawMessage(title, subtitle) {
@@ -285,7 +315,11 @@ function draw() {
   drawGround();
   for (const p of state.platforms) drawPlatform(p);
   for (const o of state.obstacles) drawBottle(o);
+  const blink = state.invuln > 0 && Math.floor(state.invuln * 12) % 2 === 0;
+  ctx.globalAlpha = blink ? 0.3 : 1;
   drawPlayer();
+  ctx.globalAlpha = 1;
+  drawHearts();
   drawHud();
   if (state.phase === 'ready') drawMessage('RUNNING PAULI', START_HINT);
   if (state.phase === 'gameover') drawMessage('GAME OVER', RESTART_HINT);

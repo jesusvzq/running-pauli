@@ -26,16 +26,16 @@ body {
   justify-content: center;
 }
 
-/* Logical canvas is 800x300 (8:3); scale it to the largest size that fits. */
+/* Logical canvas is 800x340 (40:17); scale it to the largest size that fits. */
 canvas {
   display: block;
-  width: min(100vw, calc(100vh * 8 / 3));
-  aspect-ratio: 8 / 3;
+  width: min(100vw, calc(100vh * 40 / 17));
+  aspect-ratio: 40 / 17;
   height: auto;
 }
 
 @supports (height: 100dvh) {
   canvas {
-    width: min(100vw, calc(100dvh * 8 / 3));
+    width: min(100vw, calc(100dvh * 40 / 17));
   }
 }

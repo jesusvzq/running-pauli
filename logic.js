@@ -2,7 +2,7 @@
 // all times are seconds. `y` is the player's height above the ground (up is positive).
 
 export const W = 800;
-export const H = 300;
+export const H = 340; // 300 of playfield + a strip under the ground for the hearts
 export const GROUND_Y = 250;
 
 export const GRAVITY = 2400;
@@ -12,6 +12,9 @@ export const AIRTIME = (2 * JUMP_V) / GRAVITY;
 export const START_SPEED = 300;
 export const MAX_SPEED = 750;
 export const ACCEL = 8;
+
+export const MAX_LIVES = 7;
+export const INVULN_TIME = 0.8; // seconds without damage after a bottle hit
 
 export const MAX_DT = 0.05;
 export const RESTART_LOCKOUT = 0.4;
@@ -36,7 +39,7 @@ export const PLATFORM_PRE = 50; // ground before the hole that a platform may ov
 export const PLATFORM_POST = 60; // ground past the hole that a platform may overhang
 export const HOLE_MARGIN = 120; // extra hole width beyond the ground-jump distance
 export const HOLE_RANDOM = 100;
-export const FALL_DEPTH = H - GROUND_Y; // feet below the ground by this much = out of the screen = dead
+export const FALL_DEPTH = 50; // depth of a hole: feet this far below the ground = fallen out of the pit = dead
 // Chains of 2-4 platforms over a hole, crossed hop by hop. The first is reachable from the ground; the
 // others alternate between the low and the high height (a ground jump peaks at 133, so it cannot reach
 // the high one; the screen has no room for more heights). Platforms are one-way.
@@ -85,6 +88,8 @@ export function createState(rng = Math.random) {
     y: 0,
     vy: 0,
     onGround: true,
+    lives: MAX_LIVES,
+    invuln: 0,
     obstacles: [],
     pits: [],
     platforms: [],
@@ -100,6 +105,8 @@ export function start(state) {
     y: 0,
     vy: 0,
     onGround: true,
+    lives: MAX_LIVES,
+    invuln: 0,
     obstacles: [],
     pits: [],
     platforms: [],
@@ -229,16 +236,20 @@ export function supportHeight(state, fromY) {
   return floor;
 }
 
-export function collides(state) {
+// The bottles the player is touching right now.
+export function hitBottles(state) {
   const left = PLAYER.x + HIT_PLAYER.insetX;
   const right = PLAYER.x + PLAYER.w - HIT_PLAYER.insetX;
-  for (const o of state.obstacles) {
+  return state.obstacles.filter((o) => {
     const oLeft = o.x + HIT_BOTTLE.insetX;
     const oRight = o.x + o.w - HIT_BOTTLE.insetX;
     const oTop = o.h - HIT_BOTTLE.insetTop;
-    if (right > oLeft && left < oRight && state.y < oTop) return true;
-  }
-  return false;
+    return right > oLeft && left < oRight && state.y < oTop;
+  });
+}
+
+export function collides(state) {
+  return hitBottles(state).length > 0;
 }
 
 export function step(state, rawDt) {
@@ -277,7 +288,19 @@ export function step(state, rawDt) {
   state.untilSpawn -= dx;
   if (state.untilSpawn <= 0) spawn(state);
 
-  if (collides(state) || state.y < -FALL_DEPTH) {
+  state.invuln = Math.max(0, state.invuln - dt);
+  if (state.invuln === 0) {
+    // A bottle that hits shatters and costs a heart; each bottle touched costs one.
+    const hit = hitBottles(state);
+    if (hit.length > 0) {
+      state.lives = Math.max(0, state.lives - hit.length);
+      state.obstacles = state.obstacles.filter((o) => !hit.includes(o));
+      state.invuln = INVULN_TIME;
+    }
+  }
+
+  // Falling into a hole is fatal whatever the hearts.
+  if (state.lives === 0 || state.y < -FALL_DEPTH) {
     state.phase = 'gameover';
     state.overAt = state.time;
   }

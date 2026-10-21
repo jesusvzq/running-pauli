@@ -13,7 +13,9 @@ import {
   airtimeTo,
   GRAVITY,
   JUMP_V,
+  INVULN_TIME,
   MAX_DT,
+  MAX_LIVES,
   FALL_DEPTH,
   HOLE_MARGIN,
   MAX_SPEED,
@@ -27,6 +29,7 @@ import {
   SPAWN_X,
   START_SPEED,
   collides,
+  hitBottles,
   createState,
   getScore,
   jump,
@@ -133,13 +136,17 @@ test('collision: bottle on the player hits, jumping over or being far away misse
   assert.equal(collides(s), false);
 });
 
-test('hitting a bottle ends the game and freezes the world', () => {
+test('hitting a bottle with the last heart ends the game and freezes the world', () => {
   const s = runningState();
-  s.obstacles = [{ x: PLAYER.x + 30, w: 24, h: 56 }];
+  s.lives = 1;
+  s.obstacles = [
+    { x: PLAYER.x + 30, w: 24, h: 56 },
+    { x: PLAYER.x + 400, w: 24, h: 56 }, // far away: shows the world standing still
+  ];
   step(s, 0.05);
   assert.equal(s.phase, 'gameover');
-  const { distance, obstacles } = s;
-  const x = obstacles[0].x;
+  const { distance } = s;
+  const x = s.obstacles[0].x;
   step(s, 0.05);
   assert.equal(s.distance, distance);
   assert.equal(s.obstacles[0].x, x);
@@ -154,6 +161,7 @@ test('tap: starts from ready (and jumps), jumps while running', () => {
 
 test('restart is locked out briefly after game over, then resets', () => {
   const s = runningState();
+  s.lives = 1;
   s.obstacles = [{ x: PLAYER.x, w: 24, h: 56 }];
   step(s, 0.01);
   assert.equal(s.phase, 'gameover');
@@ -170,6 +178,8 @@ test('restart is locked out briefly after game over, then resets', () => {
   assert.equal(s.phase, 'running');
   assert.equal(s.distance, 0);
   assert.equal(s.speed, START_SPEED);
+  assert.equal(s.lives, MAX_LIVES);
+  assert.equal(s.invuln, 0);
   assert.deepEqual(s.obstacles, []);
 });
 
@@ -506,3 +516,86 @@ test('chain: skipping the hop (running off the ledge) falls into the hole', () =
 function onGround75(s) {
   return s.onGround && s.y === 75;
 }
+
+test('a run starts with 7 hearts', () => {
+  assert.equal(MAX_LIVES, 7);
+  assert.equal(createState(mulberry32(1)).lives, 7);
+  assert.equal(runningState().lives, 7);
+});
+
+test('a bottle hit costs one heart, shatters the bottle and keeps the game going', () => {
+  const s = runningState();
+  s.obstacles = [{ x: PLAYER.x, w: 24, h: 56 }];
+  step(s, 1 / 60);
+  assert.equal(s.lives, 6);
+  assert.equal(s.phase, 'running');
+  assert.equal(s.obstacles.length, 0);
+  assert.ok(s.invuln > 0);
+});
+
+test('each bottle touched costs a heart', () => {
+  const s = runningState();
+  s.obstacles = [
+    { x: PLAYER.x + 8, w: 22, h: 44 },
+    { x: PLAYER.x + 8 + 26, w: 24, h: 56 },
+  ];
+  step(s, 1 / 60);
+  assert.equal(hitBottles(s).length, 0);
+  assert.equal(s.lives, 5);
+});
+
+test('after a hit the player is invulnerable for INVULN_TIME, then bottles hurt again', () => {
+  const s = runningState();
+  s.obstacles = [{ x: PLAYER.x, w: 24, h: 56 }];
+  step(s, 1 / 60); // hit
+  assert.equal(s.lives, 6);
+  advance(s, INVULN_TIME / 2);
+  s.obstacles = [{ x: PLAYER.x, w: 24, h: 56 }]; // another bottle right on the player, mid-flash
+  step(s, 1 / 60);
+  assert.equal(s.lives, 6, 'no damage during the flash');
+  assert.equal(s.obstacles.length, 1, 'bottles pass through during the flash');
+  advance(s, INVULN_TIME);
+  s.obstacles = [{ x: PLAYER.x, w: 24, h: 56 }];
+  step(s, 1 / 60);
+  assert.equal(s.lives, 5, 'hurts again once the flash is over');
+});
+
+test('losing the last heart ends the game; hearts never go negative', () => {
+  const s = runningState();
+  s.lives = 2;
+  s.obstacles = [
+    { x: PLAYER.x + 8, w: 22, h: 44 },
+    { x: PLAYER.x + 8 + 26, w: 24, h: 56 },
+    { x: PLAYER.x + 8 + 52, w: 24, h: 56 },
+  ];
+  step(s, 1 / 60);
+  assert.equal(s.lives, 0);
+  assert.equal(s.phase, 'gameover');
+});
+
+test('seven hits in a row end the game on the seventh', () => {
+  const s = runningState();
+  for (let hit = 1; hit <= 7; hit++) {
+    assert.equal(s.phase, 'running', `still alive before hit ${hit}`);
+    s.obstacles = [{ x: PLAYER.x, w: 24, h: 56 }];
+    s.invuln = 0;
+    step(s, 1 / 60);
+    assert.equal(s.lives, 7 - hit);
+  }
+  assert.equal(s.phase, 'gameover');
+});
+
+test('falling into a hole kills whatever the hearts', () => {
+  const s = pitState();
+  assert.equal(s.lives, MAX_LIVES);
+  advance(s, 3);
+  assert.equal(s.phase, 'gameover');
+  assert.equal(s.lives, MAX_LIVES, 'the hearts were not the cause');
+});
+
+test('falling into a hole kills even while invulnerable', () => {
+  const s = pitState();
+  s.invuln = 10;
+  advance(s, 3);
+  assert.equal(s.phase, 'gameover');
+});
