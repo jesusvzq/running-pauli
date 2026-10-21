@@ -19,6 +19,8 @@ const COLORS = {
   pit: '#dcdcdc',
   heart: '#e0334c',
   heartEmpty: '#c9c9c9',
+  cat: '#f0a050',
+  catDark: '#b8702a',
 };
 
 const HI_KEY = 'running-pauli:hi';
@@ -258,6 +260,37 @@ function drawBottle(o) {
   ctx.fillRect(x + w * 0.18, y + h * 0.42, 2, h * 0.5);
 }
 
+function drawCat(c) {
+  const x = c.x;
+  const y = L.GROUND_Y - c.bottom - L.CAT.h;
+  ctx.fillStyle = COLORS.cat;
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); // body
+  ctx.ellipse(x + 15, y + 17, 14, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath(); // head with ears
+  ctx.moveTo(x + 22, y + 12);
+  ctx.lineTo(x + 23, y + 2);
+  ctx.lineTo(x + 28, y + 7);
+  ctx.lineTo(x + 32, y + 2);
+  ctx.lineTo(x + 34, y + 12);
+  ctx.quadraticCurveTo(x + 34, y + 20, x + 28, y + 20);
+  ctx.quadraticCurveTo(x + 22, y + 20, x + 22, y + 12);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = COLORS.ink;
+  ctx.fillRect(x + 25, y + 11, 2, 2);
+  ctx.fillRect(x + 30, y + 11, 2, 2);
+  ctx.strokeStyle = COLORS.catDark; // tail
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x + 2, y + 17);
+  ctx.quadraticCurveTo(x - 4, y + 12, x + 1, y + 6);
+  ctx.stroke();
+}
+
 function heartPath(cx, cy, r) {
   ctx.beginPath();
   ctx.moveTo(cx, cy + r * 0.9);
@@ -315,6 +348,7 @@ function draw() {
   drawGround();
   for (const p of state.platforms) drawPlatform(p);
   for (const o of state.obstacles) drawBottle(o);
+  for (const c of state.cats) drawCat(c);
   drawPlayer();
   drawHearts();
   drawHud();

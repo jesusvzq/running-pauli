@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AIRTIME,
+  CAT,
+  CAT_FIRST,
   CHAINS_FROM_SCORE,
   HIGH_H,
   CHAIN_PITCH_MIN,
@@ -592,4 +594,87 @@ test('falling into a hole kills whatever the hearts', () => {
   advance(s, 3);
   assert.equal(s.phase, 'gameover');
   assert.equal(s.lives, MAX_LIVES, 'the hearts were not the cause');
+});
+
+test('a cat is in the air and gives a heart back when jumped into', () => {
+  const s = runningState();
+  s.lives = 2;
+  s.cats = [{ x: PLAYER.x, bottom: CAT.air }];
+  step(s, 1 / 60);
+  assert.equal(s.lives, 2, 'running under it does nothing');
+  s.y = 60;
+  s.onGround = false;
+  s.vy = 0;
+  step(s, 1 / 60);
+  assert.equal(s.lives, 3);
+  assert.equal(s.cats.length, 0);
+});
+
+test('a cat never takes hearts past the maximum', () => {
+  const s = runningState();
+  s.cats = [{ x: PLAYER.x, bottom: CAT.air }];
+  s.y = 60;
+  s.onGround = false;
+  step(s, 1 / 60);
+  assert.equal(s.lives, MAX_LIVES);
+  assert.equal(s.cats.length, 0);
+});
+
+test('cats spawn only while a heart is missing', () => {
+  const full = runningState();
+  full.untilCat = 0;
+  step(full, 1 / 60);
+  assert.equal(full.cats.length, 0);
+  assert.ok(full.untilCat > 0, 'the check is rescheduled');
+
+  const hurt = runningState();
+  hurt.lives = MAX_LIVES - 1;
+  hurt.untilCat = 0;
+  step(hurt, 1 / 60);
+  assert.equal(hurt.cats.length, 1);
+  assert.ok(hurt.cats[0].x > SPAWN_X - 20);
+});
+
+test('a run starts with no cats and restart clears them', () => {
+  const s = runningState();
+  assert.equal(s.cats.length, 0);
+  assert.equal(s.untilCat, CAT_FIRST);
+  s.cats = [{ x: 300, bottom: 0 }];
+  s.untilCat = 5;
+  start(s);
+  assert.equal(s.cats.length, 0);
+  assert.equal(s.untilCat, CAT_FIRST);
+});
+
+test('a cat that scrolls off is dropped, and a ground jump reaches the cat', () => {
+  const s = runningState();
+  s.cats = [{ x: -CAT.w - 30, bottom: 0 }];
+  step(s, 1 / 60);
+  assert.equal(s.cats.length, 0);
+  assert.ok(JUMP_V * JUMP_V / (2 * GRAVITY) + PLAYER.h > CAT.air);
+});
+
+test('a ground cat is collected by running into it, and spawns only on clear ground', () => {
+  const s = runningState();
+  s.lives = 2;
+  s.cats = [{ x: PLAYER.x, bottom: 0 }];
+  step(s, 1 / 60);
+  assert.equal(s.lives, 3);
+
+  const rngLow = () => 0; // always picks a ground cat
+  const withRng = () => Object.assign(runningState(), { rng: rngLow });
+  const clear = withRng();
+  clear.lives = 2;
+  clear.untilCat = 0;
+  clear.untilSpawn = 5000;
+  step(clear, 1 / 60);
+  assert.equal(clear.cats[0].bottom, 0);
+
+  const blocked = withRng();
+  blocked.lives = 2;
+  blocked.untilCat = 0;
+  blocked.untilSpawn = 5000;
+  blocked.obstacles = [{ x: SPAWN_X, w: 22, h: 44 }];
+  step(blocked, 1 / 60);
+  assert.equal(blocked.cats[0].bottom, CAT.air, 'floats over a bottle instead');
 });

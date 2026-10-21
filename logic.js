@@ -15,6 +15,14 @@ export const ACCEL = 8;
 
 export const MAX_LIVES = 5;
 
+// Cats float in the air; touching one gives a heart back. They only spawn while a heart is missing.
+export const CAT = { w: 36, h: 26, air: 95 }; // air: height above the ground of a floating cat; a jump peaks at 133
+export const CAT_GROUND_CHANCE = 0.4; // of the cats; a ground cat is picked up by running into it
+export const CAT_CLEAR = 150; // a ground cat needs this much free ground around its spawn point
+export const CAT_FIRST = 6000; // distance to the first spawn check
+export const CAT_MIN = 5000; // distance between spawn checks
+export const CAT_RANDOM = 5000;
+
 export const MAX_DT = 0.05;
 export const RESTART_LOCKOUT = 0.4;
 export const SCORE_PER_PX = 0.04;
@@ -91,6 +99,8 @@ export function createState(rng = Math.random) {
     obstacles: [],
     pits: [],
     platforms: [],
+    cats: [],
+    untilCat: CAT_FIRST,
     untilSpawn: FIRST_OBSTACLE_AT,
   };
 }
@@ -107,6 +117,8 @@ export function start(state) {
     obstacles: [],
     pits: [],
     platforms: [],
+    cats: [],
+    untilCat: CAT_FIRST,
     untilSpawn: FIRST_OBSTACLE_AT,
   });
 }
@@ -245,6 +257,19 @@ export function hitBottles(state) {
   });
 }
 
+// Free of bottles, holes and platforms around the spawn point, and no spawn due right away.
+function groundIsClear(state) {
+  const lo = SPAWN_X - CAT_CLEAR;
+  const hi = SPAWN_X + CAT.w + CAT_CLEAR;
+  const free = (a) => a.x + a.w <= lo || a.x >= hi;
+  return state.untilSpawn > CAT_CLEAR + CAT.w && [...state.obstacles, ...state.pits, ...state.platforms].every(free);
+}
+
+function touchesCat(state, c) {
+  const [left, right] = feetRange();
+  return right > c.x && left < c.x + CAT.w && state.y + PLAYER.h > c.bottom && state.y < c.bottom + CAT.h;
+}
+
 export function collides(state) {
   return hitBottles(state).length > 0;
 }
@@ -282,8 +307,25 @@ export function step(state, rawDt) {
     }
   }
 
+  for (const c of state.cats) c.x -= dx;
+  state.cats = state.cats.filter((c) => c.x + CAT.w > -20);
+  state.untilCat -= dx;
+  if (state.untilCat <= 0) {
+    if (state.lives < MAX_LIVES) {
+      const ground = state.rng() < CAT_GROUND_CHANCE && groundIsClear(state);
+      state.cats.push({ x: SPAWN_X, bottom: ground ? 0 : CAT.air });
+    }
+    state.untilCat = CAT_MIN + state.rng() * CAT_RANDOM;
+  }
+
   state.untilSpawn -= dx;
   if (state.untilSpawn <= 0) spawn(state);
+
+  const got = state.cats.filter((c) => touchesCat(state, c));
+  if (got.length > 0) {
+    state.lives = Math.min(MAX_LIVES, state.lives + got.length);
+    state.cats = state.cats.filter((c) => !got.includes(c));
+  }
 
   // A bottle that hits shatters and costs a heart, so every bottle in a group costs one.
   const hit = hitBottles(state);
