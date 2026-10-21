@@ -29,13 +29,16 @@ export const CAT_RANDOM = 5000;
 export const CLUB_EVERY = 2000; // score between clubs
 export const CLUB = { w: 380, h: 250 };
 export const FLY_TIME = 10;
-export const FLY_Y = 170; // flying height above ground
-export const FLY_EASE = 4; // how fast she climbs to FLY_Y (1/s)
+// While flying she is a flappy bird: gravity pulls her down, each tap flaps her up, the top of the canvas is the ceiling.
+export const FLY_GRAVITY = 1500;
+export const FLAP_V = 480;
+export const FLY_MAX_FALL = 700;
 export const MAX_DT = 0.05;
 export const RESTART_LOCKOUT = 0.4;
 export const SCORE_PER_PX = 0.04;
 
 export const PLAYER = { x: 70, w: 40, h: 60 };
+export const FLY_CEILING = GROUND_Y - PLAYER.h; // y at which her head touches the top of the canvas
 export const HIT_PLAYER = { insetX: 7 };
 export const HIT_BOTTLE = { insetX: 3, insetTop: 4 };
 
@@ -149,12 +152,18 @@ export function jump(state) {
 }
 
 // Single entry point for tap / click / key press.
+export function flap(state) {
+  if (state.phase !== 'running' || state.flyLeft <= 0) return false;
+  state.vy = FLAP_V;
+  return true;
+}
+
 export function tap(state) {
   if (state.phase === 'ready') {
     start(state);
     jump(state);
   } else if (state.phase === 'running') {
-    jump(state);
+    if (!flap(state)) jump(state);
   } else if (state.time - state.overAt >= RESTART_LOCKOUT) {
     start(state);
   }
@@ -331,7 +340,7 @@ export function step(state, rawDt) {
     state.flyLeft = FLY_TIME;
     state.glow = true;
     state.onGround = false;
-    state.vy = 0;
+    state.vy = FLAP_V; // she bursts out of the club
   }
 
   // Standing on something that has scrolled away: start falling.
@@ -341,8 +350,16 @@ export function step(state, rawDt) {
   }
   if (state.flyLeft > 0) {
     state.flyLeft = Math.max(0, state.flyLeft - dt);
-    state.y += (FLY_Y - state.y) * Math.min(1, FLY_EASE * dt);
-    state.vy = 0;
+    state.y += state.vy * dt - 0.5 * FLY_GRAVITY * dt * dt;
+    state.vy = Math.max(-FLY_MAX_FALL, state.vy - FLY_GRAVITY * dt);
+    if (state.y >= FLY_CEILING) {
+      state.y = FLY_CEILING;
+      state.vy = Math.min(state.vy, 0);
+    }
+    if (state.y <= 0) {
+      state.y = 0; // shining, she rests on the ground even over lava
+      state.vy = 0;
+    }
   } else if (!state.onGround) {
     const prevY = state.y;
     state.y += state.vy * dt - 0.5 * GRAVITY * dt * dt;

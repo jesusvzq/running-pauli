@@ -7,7 +7,8 @@ import {
   CLUB,
   CLUB_EVERY,
   FLY_TIME,
-  FLY_Y,
+  FLY_CEILING,
+  FLAP_V,
   CHAINS_FROM_SCORE,
   HIGH_H,
   CHAIN_PITCH_MIN,
@@ -47,6 +48,7 @@ import {
   start,
   step,
   tap,
+  flap,
 } from './logic.js';
 
 // Deterministic rng so failures are reproducible.
@@ -734,8 +736,9 @@ test('behind the club: immune to bottles, cannot jump; leaving it starts a 10 s 
   while (s.inside) step(s, 1 / 60);
   assert.equal(s.glow, true);
   assert.ok(s.flyLeft > FLY_TIME - 0.1);
+  assert.ok(s.vy > 0, 'bursts out of the club going up');
   advance(s, 3);
-  assert.ok(s.y > FLY_Y - 5, `flying at ${s.y}`);
+  assert.equal(s.y, 0, 'without flapping gravity pulls her down');
   assert.equal(jump(s), false);
 });
 
@@ -747,7 +750,7 @@ test('flying: bottles and holes cannot hurt, flight lasts 10 s', () => {
   advance(s, FLY_TIME - 1);
   assert.equal(s.phase, 'running');
   assert.equal(s.lives, MAX_LIVES);
-  assert.ok(s.flyLeft > 0 && s.y > FLY_Y - 5);
+  assert.ok(s.flyLeft > 0 && s.flyLeft < 1.1);
 });
 
 test('after the flight she falls; landing over a hole is safe and the shine ends on solid ground', () => {
@@ -783,4 +786,23 @@ test('no cats spawn while a club is on screen', () => {
   s.untilCat = 0;
   step(s, 1 / 60);
   assert.equal(s.cats.length, 0);
+});
+
+test('flying is flappy: gravity pulls down, each tap flaps up, the canvas top is the ceiling', () => {
+  const s = clubState();
+  while (!s.glow) step(s, 1 / 60);
+  advance(s, 2);
+  assert.equal(s.y, 0);
+  tap(s);
+  assert.equal(s.vy, FLAP_V);
+  advance(s, 0.2);
+  assert.ok(s.y > 20, `a tap lifts her: ${s.y}`);
+  const peak = (() => { let m = 0; for (let i = 0; i < 120; i++) { step(s, 1 / 60); m = Math.max(m, s.y); } return m; })();
+  assert.ok(peak < FLY_CEILING, 'one flap does not reach the ceiling');
+  const f = clubState();
+  while (!f.glow) step(f, 1 / 60);
+  let top = 0;
+  for (let i = 0; i < 90; i++) { if (i % 6 === 0) flap(f); step(f, 1 / 60); top = Math.max(top, f.y); }
+  assert.equal(top, FLY_CEILING, 'flapping non-stop reaches the ceiling and never passes it');
+  assert.equal(flap(runningState()), false, 'no flapping outside the flight');
 });

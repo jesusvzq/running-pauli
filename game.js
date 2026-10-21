@@ -263,8 +263,7 @@ function drawGlow(cx, cy) {
 
 function drawPlayer() {
   const x = L.PLAYER.x;
-  const bob = state.flyLeft > 0 ? Math.sin(performance.now() / 150) * 4 : 0;
-  const top = L.GROUND_Y - state.y - L.PLAYER.h + bob;
+  const top = L.GROUND_Y - state.y - L.PLAYER.h;
   if (state.glow) {
     drawGlow(x + L.PLAYER.w / 2, top + L.PLAYER.h / 2);
     if (state.flyLeft > 0 && state.flyLeft < 2 && Math.floor(performance.now() / 120) % 2) ctx.globalAlpha = 0.5;
