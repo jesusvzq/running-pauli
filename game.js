@@ -228,9 +228,47 @@ function drawFace(cx, cy, r, dead) {
   }
 }
 
+// Golden halo and twinkling stars while Pauli shines; it blinks in the last 2 s of the flight.
+function drawGlow(cx, cy) {
+  const t = performance.now() / 1000;
+  const r = 52 + Math.sin(t * 9) * 5;
+  const g = ctx.createRadialGradient(cx, cy, 6, cx, cy, r);
+  g.addColorStop(0, 'rgba(255, 244, 150, 0.85)');
+  g.addColorStop(0.5, 'rgba(255, 214, 60, 0.4)');
+  g.addColorStop(1, 'rgba(255, 214, 60, 0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff6b0';
+  for (let i = 0; i < 6; i++) {
+    const a = t * 2 + (i * Math.PI) / 3;
+    const d = 34 + ((i * 7) % 3) * 6 + Math.sin(t * 5 + i) * 4;
+    const sx = cx + Math.cos(a) * d;
+    const sy = cy + Math.sin(a) * d;
+    const sz = 3 + ((i + Math.floor(t * 6)) % 3);
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - sz * 1.6);
+    ctx.lineTo(sx + sz * 0.5, sy - sz * 0.5);
+    ctx.lineTo(sx + sz * 1.6, sy);
+    ctx.lineTo(sx + sz * 0.5, sy + sz * 0.5);
+    ctx.lineTo(sx, sy + sz * 1.6);
+    ctx.lineTo(sx - sz * 0.5, sy + sz * 0.5);
+    ctx.lineTo(sx - sz * 1.6, sy);
+    ctx.lineTo(sx - sz * 0.5, sy - sz * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
 function drawPlayer() {
   const x = L.PLAYER.x;
-  const top = L.GROUND_Y - state.y - L.PLAYER.h;
+  const bob = state.flyLeft > 0 ? Math.sin(performance.now() / 150) * 4 : 0;
+  const top = L.GROUND_Y - state.y - L.PLAYER.h + bob;
+  if (state.glow) {
+    drawGlow(x + L.PLAYER.w / 2, top + L.PLAYER.h / 2);
+    if (state.flyLeft > 0 && state.flyLeft < 2 && Math.floor(performance.now() / 120) % 2) ctx.globalAlpha = 0.5;
+  }
   const dead = state.phase === 'gameover';
   const running = state.phase === 'running' && state.onGround;
   const frame = running ? Math.floor(state.distance / 25) % 2 : 0;
@@ -279,6 +317,7 @@ function drawPlayer() {
 
   drawFace(x + 20, top + 14, 14, dead);
   ctx.lineCap = 'butt';
+  ctx.globalAlpha = 1;
 }
 
 // Glass shards flying off a bottle that was hit.
@@ -396,6 +435,174 @@ function drawCat(c) {
   ctx.stroke();
 }
 
+// ---- the Holiday club ----
+
+const CLUB_PALETTE = {
+  R: '#d9382b', Y: '#f0b92a', T: '#3aa89a', K: '#1a1a1a', P: '#f1a5a0', M: '#b7dccb', B: '#1d4aa0',
+};
+// Harlequin door: two rows of zigzag triangles (up-pointing, down-pointing), 'S' = black/white stripes.
+const DOOR_ROWS = [
+  { up: 'STRYS', down: 'MYKRYM' },
+  { up: 'RPKYB', down: 'TSMPST' },
+];
+
+function stripeFill(x, y, w, h) {
+  ctx.fillStyle = '#f4f4f4';
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#111';
+  for (let yy = y; yy < y + h; yy += 3.4) ctx.fillRect(x, yy, w, 1.7);
+}
+
+function drawDoor(x, y, w, h) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  const B = w / 5;
+  const rh = h / DOOR_ROWS.length;
+  DOOR_ROWS.forEach((row, r) => {
+    const top = y + r * rh;
+    const paint = (code, path) => {
+      ctx.save();
+      ctx.beginPath();
+      path();
+      ctx.clip();
+      if (code === 'S') stripeFill(x, top, w, rh);
+      else {
+        ctx.fillStyle = CLUB_PALETTE[code];
+        ctx.fillRect(x, top, w, rh);
+      }
+      ctx.restore();
+    };
+    for (let k = 0; k < row.up.length; k++) {
+      const a = x + k * B;
+      paint(row.up[k], () => {
+        ctx.moveTo(a, top + rh);
+        ctx.lineTo(a + B / 2, top);
+        ctx.lineTo(a + B, top + rh);
+      });
+    }
+    for (let k = 0; k < row.down.length; k++) {
+      const a = x + (k - 0.5) * B;
+      paint(row.down[k], () => {
+        ctx.moveTo(a, top);
+        ctx.lineTo(a + B, top);
+        ctx.lineTo(a + B / 2, top + rh);
+      });
+    }
+  });
+  // Door leaf seams and handle.
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 1; i < 4; i++) {
+    ctx.moveTo(x + (w * i) / 4, y);
+    ctx.lineTo(x + (w * i) / 4, y + h);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#d8d8d8';
+  ctx.fillRect(x + (w * 3) / 4 + 6, y + h * 0.52, 8, 2.5);
+  ctx.restore();
+}
+
+// "Holiday" in fat white 3D letters following the arch of the steel canopy.
+function drawClubSign(x, w, top) {
+  const letters = 'Holiday';
+  const cx = x + w / 2;
+  const arch = 16; // how much the sign rises in the middle
+  const half = w / 2 - 22;
+  ctx.save();
+  ctx.font = '900 54px "Arial Black", "Helvetica Neue", Impact, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  const widths = [...letters].map((ch) => ctx.measureText(ch).width * 0.92);
+  const total = widths.reduce((a, b) => a + b, 0);
+  let pen = cx - total / 2;
+  [...letters].forEach((ch, i) => {
+    const mid = pen + widths[i] / 2;
+    pen += widths[i];
+    const u = (mid - cx) / half;
+    const base = top + 86 - arch * (1 - u * u);
+    const angle = Math.atan(2 * arch * u / half);
+    ctx.save();
+    ctx.translate(mid, base);
+    ctx.rotate(angle);
+    // extrusion (grey body going down-right), then the white face
+    ctx.fillStyle = '#8d949c';
+    for (let d = 5; d >= 1; d--) ctx.fillText(ch, d * 0.8, d * 0.8);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#6f757c';
+    ctx.strokeText(ch, 0, 0);
+    ctx.fillStyle = '#fbfbfb';
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+function drawClub(c) {
+  const x = c.x;
+  const w = c.w;
+  const h = L.CLUB.h;
+  const top = L.GROUND_Y - h;
+  const pillar = 36;
+
+  // brick wall of the building above the sign
+  ctx.fillStyle = '#c79b75';
+  ctx.fillRect(x, top, w, 112);
+  ctx.strokeStyle = 'rgba(90, 50, 30, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let r = 0; r < 112; r += 8) {
+    ctx.moveTo(x, top + r);
+    ctx.lineTo(x + w, top + r);
+    for (let bx = (r / 8) % 2 ? 0 : 14; bx < w; bx += 28) {
+      ctx.moveTo(x + bx, top + r);
+      ctx.lineTo(x + bx, top + r + 8);
+    }
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#e8e2d4'; // balcony slab at the very top
+  ctx.fillRect(x - 6, top - 6, w + 12, 10);
+
+  // dark speckled granite facade
+  ctx.fillStyle = '#262d3a';
+  ctx.fillRect(x, top + 112, w, h - 112);
+  for (let i = 0; i < 90; i++) {
+    ctx.fillStyle = i % 3 ? 'rgba(160, 170, 190, 0.5)' : 'rgba(255, 255, 255, 0.35)';
+    ctx.fillRect(x + ((i * 53) % w), top + 112 + ((i * 37) % (h - 112)), 1.6, 1.6);
+  }
+  ctx.fillStyle = '#d9d2c3'; // cream pilaster on the left
+  ctx.fillRect(x, top + 112, 10, h - 112);
+
+  drawDoor(x + pillar, top + 124, w - pillar * 2, h - 124 - 4);
+
+  // vertical letters engraved on the right granite pillar, as in the photo
+  ctx.fillStyle = '#b9c0cc';
+  ctx.font = 'bold 13px "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  [...'HOLIDAY'].forEach((ch, i) => ctx.fillText(ch, x + w - pillar / 2, top + 148 + i * 16));
+
+  // curved stainless-steel canopy carrying the sign
+  const g = ctx.createLinearGradient(0, top + 30, 0, top + 124);
+  g.addColorStop(0, '#f3f5f7');
+  g.addColorStop(0.5, '#aeb4ba');
+  g.addColorStop(1, '#e4e7ea');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(x + 6, top + 118);
+  ctx.quadraticCurveTo(x + 6, top + 46, x + w / 2, top + 40);
+  ctx.quadraticCurveTo(x + w - 6, top + 46, x + w - 6, top + 118);
+  ctx.quadraticCurveTo(x + w / 2, top + 108, x + 6, top + 118);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#7b8189';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  drawClubSign(x, w, top);
+}
+
 const pad = (n) => String(n).padStart(5, '0');
 
 // Hearts and score live in an HTML bar above the canvas; only touch the DOM when the text changes.
@@ -438,6 +645,7 @@ function draw() {
   for (const o of state.obstacles) drawBottle(o);
   for (const c of state.cats) drawCat(c);
   drawPlayer();
+  for (const c of state.clubs) drawClub(c); // in front of Pauli: she walks in behind it
   drawShards();
   if (state.phase === 'ready') drawMessage('RUNNING PAULI', START_HINT);
   if (state.phase === 'gameover') drawMessage('GAME OVER', RESTART_HINT);

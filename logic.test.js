@@ -4,6 +4,10 @@ import {
   AIRTIME,
   CAT,
   CAT_FIRST,
+  CLUB,
+  CLUB_EVERY,
+  FLY_TIME,
+  FLY_Y,
   CHAINS_FROM_SCORE,
   HIGH_H,
   CHAIN_PITCH_MIN,
@@ -36,6 +40,7 @@ import {
   jump,
   spawn,
   spawnChain,
+  spawnClub,
   spawnHole,
   spawnGroup,
   spawnPit,
@@ -677,4 +682,105 @@ test('a ground cat is collected by running into it, and spawns only on clear gro
   blocked.obstacles = [{ x: SPAWN_X, w: 22, h: 44 }];
   step(blocked, 1 / 60);
   assert.equal(blocked.cats[0].bottom, CAT.air, 'floats over a bottle instead');
+});
+
+// ---- Holiday club ----
+
+// A running state with a club about to swallow Pauli: its left edge is at her feet.
+function clubState(seed = 1) {
+  const s = runningState(seed);
+  s.nextClub = Infinity;
+  spawnClub(s);
+  s.untilSpawn = Infinity;
+  s.clubs[0].x = PLAYER.x + PLAYER.w - 10;
+  return s;
+}
+
+test('a club replaces the next obstacle at score 2000, then again every 2000', () => {
+  const s = createState(mulberry32(5));
+  start(s);
+  const seen = [];
+  for (let i = 0; i < 600 * 60 && seen.length < 2; i++) {
+    s.lives = MAX_LIVES;
+    s.phase = 'running';
+    s.glow = true; // keep the test about spawning: nothing can kill
+    const before = s.clubs.length;
+    step(s, 1 / 60);
+    if (s.clubs.length > before) seen.push(getScore(s));
+  }
+  assert.equal(seen.length, 2);
+  assert.ok(seen[0] >= CLUB_EVERY && seen[0] < CLUB_EVERY + 100, `first club at ${seen[0]}`);
+  assert.ok(seen[1] >= 2 * CLUB_EVERY && seen[1] < 2 * CLUB_EVERY + 100, `second club at ${seen[1]}`);
+});
+
+test('no club before score 2000', () => {
+  const s = createState(mulberry32(2));
+  start(s);
+  for (let i = 0; i < 20 * 60 && getScore(s) < CLUB_EVERY - 50; i++) {
+    s.lives = MAX_LIVES;
+    step(s, 1 / 60);
+    assert.equal(s.clubs.length, 0);
+  }
+});
+
+test('behind the club: immune to bottles, cannot jump; leaving it starts a 10 s flight', () => {
+  const s = clubState();
+  s.obstacles.push({ x: PLAYER.x, w: 24, h: 56 });
+  step(s, 1 / 60);
+  assert.equal(s.inside, true);
+  assert.equal(s.lives, MAX_LIVES, 'bottle behind the club does not hurt');
+  assert.equal(jump(s), false);
+  assert.equal(s.flyLeft, 0);
+  while (s.inside) step(s, 1 / 60);
+  assert.equal(s.glow, true);
+  assert.ok(s.flyLeft > FLY_TIME - 0.1);
+  advance(s, 3);
+  assert.ok(s.y > FLY_Y - 5, `flying at ${s.y}`);
+  assert.equal(jump(s), false);
+});
+
+test('flying: bottles and holes cannot hurt, flight lasts 10 s', () => {
+  const s = clubState();
+  while (!s.glow) step(s, 1 / 60);
+  s.pits.push({ x: 0, w: 5000 });
+  s.obstacles.push({ x: PLAYER.x, w: 24, h: 56 });
+  advance(s, FLY_TIME - 1);
+  assert.equal(s.phase, 'running');
+  assert.equal(s.lives, MAX_LIVES);
+  assert.ok(s.flyLeft > 0 && s.y > FLY_Y - 5);
+});
+
+test('after the flight she falls; landing over a hole is safe and the shine ends on solid ground', () => {
+  const s = clubState();
+  while (!s.glow) step(s, 1 / 60);
+  s.pits.push({ x: -100, w: 1e6 }); // an endless hole under her for the whole descent
+  advance(s, FLY_TIME + 1.5);
+  assert.equal(s.phase, 'running', 'did not fall into the hole');
+  assert.equal(s.y, 0);
+  assert.equal(s.glow, true, 'still shining while over the hole');
+  s.pits = [];
+  step(s, 1 / 60);
+  assert.equal(s.glow, false);
+  s.obstacles.push({ x: PLAYER.x, w: 24, h: 56 });
+  step(s, 1 / 60);
+  assert.equal(s.lives, MAX_LIVES - 1, 'bottles hurt again');
+  s.pits.push({ x: 0, w: 5000 });
+  advance(s, 1);
+  assert.equal(s.phase, 'gameover', 'holes kill again');
+});
+
+test('restart clears the club and the flight', () => {
+  const s = clubState();
+  while (!s.glow) step(s, 1 / 60);
+  start(s);
+  assert.deepEqual([s.clubs.length, s.inside, s.flyLeft, s.glow], [0, false, 0, false]);
+  assert.equal(s.nextClub, CLUB_EVERY / SCORE_PER_PX);
+});
+
+test('no cats spawn while a club is on screen', () => {
+  const s = clubState();
+  s.lives = 1;
+  s.untilCat = 0;
+  step(s, 1 / 60);
+  assert.equal(s.cats.length, 0);
 });

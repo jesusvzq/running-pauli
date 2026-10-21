@@ -24,6 +24,13 @@ export const CAT_FIRST = 6000; // distance to the first spawn check
 export const CAT_MIN = 5000; // distance between spawn checks
 export const CAT_RANDOM = 5000;
 
+// The Holiday club: every CLUB_EVERY score a building scrolls in. Pauli passes behind it, then flies
+// (and shines, immune to bottles and lava) for FLY_TIME seconds before falling back to the ground.
+export const CLUB_EVERY = 2000; // score between clubs
+export const CLUB = { w: 380, h: 250 };
+export const FLY_TIME = 10;
+export const FLY_Y = 170; // flying height above ground
+export const FLY_EASE = 4; // how fast she climbs to FLY_Y (1/s)
 export const MAX_DT = 0.05;
 export const RESTART_LOCKOUT = 0.4;
 export const SCORE_PER_PX = 0.04;
@@ -101,6 +108,11 @@ export function createState(rng = Math.random) {
     pits: [],
     platforms: [],
     cats: [],
+    clubs: [],
+    nextClub: CLUB_EVERY / SCORE_PER_PX, // distance at which the next club is due
+    inside: false, // behind a club: hidden and immune
+    flyLeft: 0, // seconds of flight left
+    glow: false, // shining and immune: from leaving the club until landed on solid ground
     untilCat: CAT_FIRST,
     untilSpawn: FIRST_OBSTACLE_AT,
   };
@@ -119,13 +131,18 @@ export function start(state) {
     pits: [],
     platforms: [],
     cats: [],
+    clubs: [],
+    nextClub: CLUB_EVERY / SCORE_PER_PX,
+    inside: false,
+    flyLeft: 0,
+    glow: false,
     untilCat: CAT_FIRST,
     untilSpawn: FIRST_OBSTACLE_AT,
   });
 }
 
 export function jump(state) {
-  if (state.phase !== 'running' || !state.onGround) return false;
+  if (state.phase !== 'running' || !state.onGround || state.inside || state.flyLeft > 0) return false;
   state.vy = JUMP_V;
   state.onGround = false;
   return true;
@@ -221,7 +238,15 @@ export function spawnChain(state, count = CHAIN_MIN + Math.floor(state.rng() * (
   spawnHole(state, count);
 }
 
+// A club takes the place of the next obstacle; nothing else spawns until it has scrolled past.
+export function spawnClub(state) {
+  state.clubs.push({ x: SPAWN_X, w: CLUB.w });
+  state.nextClub += CLUB_EVERY / SCORE_PER_PX;
+  state.untilSpawn = CLUB.w + state.speed * AIRTIME + GAP_MARGIN + state.rng() * GAP_RANDOM;
+}
+
 export function spawn(state) {
+  if (state.distance >= state.nextClub) return spawnClub(state);
   const pitsOn = state.distance >= PITS_FROM_SCORE / SCORE_PER_PX;
   if (!pitsOn || state.rng() >= PIT_CHANCE) return spawnGroup(state);
   const chainsOn = state.distance >= CHAINS_FROM_SCORE / SCORE_PER_PX;
@@ -233,13 +258,18 @@ function feetRange() {
   return [PLAYER.x + HIT_PLAYER.insetX, PLAYER.x + PLAYER.w - HIT_PLAYER.insetX];
 }
 
+function overPit(state) {
+  const [left, right] = feetRange();
+  return state.pits.some((p) => left >= p.x && right <= p.x + p.w);
+}
+
 // Height of the highest surface the player can stand on, coming from height `fromY`.
 // Ground counts unless the whole foot is over a hole (and once below ground level you keep falling);
 // platforms are one-way: they only count if the feet were at or above their top.
 export function supportHeight(state, fromY) {
   const [left, right] = feetRange();
   let floor = -Infinity;
-  if (fromY >= -EPS && !state.pits.some((p) => left >= p.x && right <= p.x + p.w)) floor = 0;
+  if (fromY >= -EPS && (state.glow || !overPit(state))) floor = 0;
   for (const p of state.platforms) {
     if (fromY >= p.h - EPS && right > p.x && left < p.x + p.w) floor = Math.max(floor, p.h);
   }
@@ -290,13 +320,30 @@ export function step(state, rawDt) {
   state.pits = state.pits.filter((p) => p.x + p.w > -20);
   for (const p of state.platforms) p.x -= dx;
   state.platforms = state.platforms.filter((p) => p.x + p.w > -20);
+  for (const c of state.clubs) c.x -= dx;
+  state.clubs = state.clubs.filter((c) => c.x + c.w > -20);
+
+  // Behind a club Pauli is hidden and immune; leaving it launches the flight.
+  const [feetL, feetR] = feetRange();
+  const wasInside = state.inside;
+  state.inside = state.clubs.some((c) => feetR > c.x && feetL < c.x + c.w);
+  if (wasInside && !state.inside) {
+    state.flyLeft = FLY_TIME;
+    state.glow = true;
+    state.onGround = false;
+    state.vy = 0;
+  }
 
   // Standing on something that has scrolled away: start falling.
   if (state.onGround && state.y > supportHeight(state, state.y) + EPS) {
     state.onGround = false;
     state.vy = 0;
   }
-  if (!state.onGround) {
+  if (state.flyLeft > 0) {
+    state.flyLeft = Math.max(0, state.flyLeft - dt);
+    state.y += (FLY_Y - state.y) * Math.min(1, FLY_EASE * dt);
+    state.vy = 0;
+  } else if (!state.onGround) {
     const prevY = state.y;
     state.y += state.vy * dt - 0.5 * GRAVITY * dt * dt;
     state.vy -= GRAVITY * dt;
@@ -312,7 +359,7 @@ export function step(state, rawDt) {
   state.cats = state.cats.filter((c) => c.x + CAT.w > -20);
   state.untilCat -= dx;
   if (state.untilCat <= 0) {
-    if (state.lives < MAX_LIVES) {
+    if (state.lives < MAX_LIVES && state.clubs.length === 0) {
       const ground = state.rng() < CAT_GROUND_CHANCE && groundIsClear(state);
       state.cats.push({ x: SPAWN_X, bottom: ground ? 0 : CAT.air });
     }
@@ -322,6 +369,9 @@ export function step(state, rawDt) {
   state.untilSpawn -= dx;
   if (state.untilSpawn <= 0) spawn(state);
 
+  // Shine ends once she is back on solid ground.
+  if (state.glow && state.flyLeft === 0 && state.onGround && !state.inside && !overPit(state)) state.glow = false;
+
   const got = state.cats.filter((c) => touchesCat(state, c));
   if (got.length > 0) {
     state.lives = Math.min(MAX_LIVES, state.lives + got.length);
@@ -329,7 +379,7 @@ export function step(state, rawDt) {
   }
 
   // A bottle that hits shatters and costs a heart, so every bottle in a group costs one.
-  const hit = hitBottles(state);
+  const hit = state.glow || state.inside ? [] : hitBottles(state);
   if (hit.length > 0) {
     state.lives = Math.max(0, state.lives - hit.length);
     state.obstacles = state.obstacles.filter((o) => !hit.includes(o));
