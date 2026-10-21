@@ -315,10 +315,7 @@ function draw() {
   drawGround();
   for (const p of state.platforms) drawPlatform(p);
   for (const o of state.obstacles) drawBottle(o);
-  const blink = state.invuln > 0 && Math.floor(state.invuln * 12) % 2 === 0;
-  ctx.globalAlpha = blink ? 0.3 : 1;
   drawPlayer();
-  ctx.globalAlpha = 1;
   drawHearts();
   drawHud();
   if (state.phase === 'ready') drawMessage('RUNNING PAULI', START_HINT);

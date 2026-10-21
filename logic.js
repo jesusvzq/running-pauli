@@ -13,8 +13,7 @@ export const START_SPEED = 300;
 export const MAX_SPEED = 750;
 export const ACCEL = 8;
 
-export const MAX_LIVES = 7;
-export const INVULN_TIME = 0.8; // seconds without damage after a bottle hit
+export const MAX_LIVES = 5;
 
 export const MAX_DT = 0.05;
 export const RESTART_LOCKOUT = 0.4;
@@ -89,7 +88,6 @@ export function createState(rng = Math.random) {
     vy: 0,
     onGround: true,
     lives: MAX_LIVES,
-    invuln: 0,
     obstacles: [],
     pits: [],
     platforms: [],
@@ -106,7 +104,6 @@ export function start(state) {
     vy: 0,
     onGround: true,
     lives: MAX_LIVES,
-    invuln: 0,
     obstacles: [],
     pits: [],
     platforms: [],
@@ -288,15 +285,11 @@ export function step(state, rawDt) {
   state.untilSpawn -= dx;
   if (state.untilSpawn <= 0) spawn(state);
 
-  state.invuln = Math.max(0, state.invuln - dt);
-  if (state.invuln === 0) {
-    // A bottle that hits shatters and costs a heart; each bottle touched costs one.
-    const hit = hitBottles(state);
-    if (hit.length > 0) {
-      state.lives = Math.max(0, state.lives - hit.length);
-      state.obstacles = state.obstacles.filter((o) => !hit.includes(o));
-      state.invuln = INVULN_TIME;
-    }
+  // A bottle that hits shatters and costs a heart, so every bottle in a group costs one.
+  const hit = hitBottles(state);
+  if (hit.length > 0) {
+    state.lives = Math.max(0, state.lives - hit.length);
+    state.obstacles = state.obstacles.filter((o) => !hit.includes(o));
   }
 
   // Falling into a hole is fatal whatever the hearts.
