@@ -6,6 +6,7 @@ import {
   CAT_FIRST,
   CLUB,
   CLUB_EVERY,
+  NO_LAVA_AFTER,
   FLY_TIME,
   FLY_CEILING,
   FLAP_V,
@@ -740,6 +741,33 @@ test('behind the club: immune to bottles, cannot jump; leaving it starts a 10 s 
   advance(s, 3);
   assert.equal(s.y, 0, 'without flapping gravity pulls her down');
   assert.equal(jump(s), false);
+});
+
+test('no hole spawns during the flight or for a stretch after the shine ends', () => {
+  const s = clubState();
+  s.speed = 600;
+  s.distance = 1e5; // deep in the game, where holes are normally common
+  while (!s.glow) step(s, 1 / 60);
+  s.nextClub = Infinity;
+  s.rng = () => 0; // always picks the hole branch when allowed
+  s.lives = 1e6; // keep the test about spawning: bottles can't end it
+  for (let i = 0; s.glow && i < 3000; i++) {
+    s.untilSpawn = 0;
+    step(s, 1 / 60);
+    assert.equal(s.pits.length, 0, 'no hole while shining');
+  }
+  assert.equal(s.glow, false, 'shine ended');
+  const landed = s.distance;
+  for (let i = 0; s.distance + 20 < landed + NO_LAVA_AFTER && i < 3000; i++) {
+    s.untilSpawn = 0;
+    step(s, 1 / 60);
+    assert.equal(s.pits.length, 0, 'no hole in the safe stretch');
+  }
+  for (let i = 0; s.pits.length === 0 && i < 100; i++) {
+    s.untilSpawn = 0;
+    step(s, 1 / 60);
+  }
+  assert.ok(s.pits.length > 0, 'holes come back afterwards');
 });
 
 test('flying: bottles and holes cannot hurt, flight lasts 10 s', () => {

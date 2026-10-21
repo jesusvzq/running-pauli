@@ -29,6 +29,7 @@ export const CAT_RANDOM = 5000;
 export const CLUB_EVERY = 2000; // score between clubs
 export const CLUB = { w: 380, h: 250 };
 export const FLY_TIME = 10;
+export const NO_LAVA_AFTER = 800; // px of lava-free ground ahead once the shine ends
 // While flying she is a flappy bird: gravity pulls her down, each tap flaps her up, the top of the canvas is the ceiling.
 export const FLY_GRAVITY = 1500;
 export const FLAP_V = 480;
@@ -116,6 +117,7 @@ export function createState(rng = Math.random) {
     inside: false, // behind a club: hidden and immune
     flyLeft: 0, // seconds of flight left
     glow: false, // shining and immune: from leaving the club until landed on solid ground
+    noPitUntil: 0, // distance before which no hole spawns (after the shine ends)
     untilCat: CAT_FIRST,
     untilSpawn: FIRST_OBSTACLE_AT,
   };
@@ -139,6 +141,7 @@ export function start(state) {
     inside: false,
     flyLeft: 0,
     glow: false,
+    noPitUntil: 0,
     untilCat: CAT_FIRST,
     untilSpawn: FIRST_OBSTACLE_AT,
   });
@@ -256,7 +259,9 @@ export function spawnClub(state) {
 
 export function spawn(state) {
   if (state.distance >= state.nextClub) return spawnClub(state);
-  const pitsOn = state.distance >= PITS_FROM_SCORE / SCORE_PER_PX;
+  // No holes during the flight or right after it: she must not land into lava once mortal again.
+  const shining = state.glow || state.inside || state.flyLeft > 0;
+  const pitsOn = state.distance >= PITS_FROM_SCORE / SCORE_PER_PX && !shining && state.distance >= state.noPitUntil;
   if (!pitsOn || state.rng() >= PIT_CHANCE) return spawnGroup(state);
   const chainsOn = state.distance >= CHAINS_FROM_SCORE / SCORE_PER_PX;
   if (chainsOn && state.rng() < CHAIN_CHANCE) spawnChain(state);
@@ -387,7 +392,10 @@ export function step(state, rawDt) {
   if (state.untilSpawn <= 0) spawn(state);
 
   // Shine ends once she is back on solid ground.
-  if (state.glow && state.flyLeft === 0 && state.onGround && !state.inside && !overPit(state)) state.glow = false;
+  if (state.glow && state.flyLeft === 0 && state.onGround && !state.inside && !overPit(state)) {
+    state.glow = false;
+    state.noPitUntil = state.distance + NO_LAVA_AFTER;
+  }
 
   const got = state.cats.filter((c) => touchesCat(state, c));
   if (got.length > 0) {
