@@ -109,13 +109,13 @@ function drawGround() {
 }
 
 function drawPlatform(p) {
-  const y = L.GROUND_Y - L.PLATFORM_H;
+  const y = L.GROUND_Y - p.h;
   ctx.fillStyle = COLORS.ink;
   ctx.beginPath();
-  ctx.roundRect(p.px, y, p.pw, 8, 3);
+  ctx.roundRect(p.x, y, p.w, 8, 3);
   ctx.fill();
   ctx.fillStyle = COLORS.pit;
-  ctx.fillRect(p.px + 4, y + 5, p.pw - 8, 1.5);
+  ctx.fillRect(p.x + 4, y + 5, p.w - 8, 1.5);
 }
 
 // The face slot. Draws the friend's photo clipped to a circle once FACE_SRC is set and loaded,
@@ -283,7 +283,7 @@ function draw() {
   ctx.fillRect(0, 0, L.W, L.H);
   drawClouds();
   drawGround();
-  for (const p of state.pits) drawPlatform(p);
+  for (const p of state.platforms) drawPlatform(p);
   for (const o of state.obstacles) drawBottle(o);
   drawPlayer();
   drawHud();

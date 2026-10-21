@@ -2,6 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AIRTIME,
+  CHAINS_FROM_SCORE,
+  HIGH_H,
+  CHAIN_PITCH_MIN,
+  CHAIN_WINDOW,
+  PLATFORM_POST,
+  PLATFORM_PRE,
+  CHAIN_PITCH_RANDOM,
+  CHAIN_PLATFORM_W,
+  airtimeTo,
   GRAVITY,
   JUMP_V,
   MAX_DT,
@@ -15,12 +24,15 @@ import {
   PLAYER,
   SCORE_PER_PX,
   RESTART_LOCKOUT,
+  SPAWN_X,
   START_SPEED,
   collides,
   createState,
   getScore,
   jump,
   spawn,
+  spawnChain,
+  spawnHole,
   spawnGroup,
   spawnPit,
   start,
@@ -214,6 +226,7 @@ test('speed ramps up and is capped; score grows with distance; obstacle list sta
 // Every layout the spawner can produce must be beatable by a well-timed jump.
 test('beatability: an ideal bot survives 2 minutes on many seeds, holes included', () => {
   let holesCleared = 0;
+  const chains = new Set();
   for (let seed = 10; seed < 30; seed++) {
     const s = createState(mulberry32(seed));
     start(s);
@@ -222,16 +235,18 @@ test('beatability: an ideal bot survives 2 minutes on many seeds, holes included
       const before = s.pits.length ? s.pits[0] : null;
       step(s, 1 / 60);
       if (before && !s.pits.includes(before)) holesCleared++;
+      if (s.platforms.some((p) => p.h === HIGH_H)) chains.add(s.pits[s.pits.length - 1]);
       assert.equal(s.phase, 'running', `seed ${seed} died at t=${s.time.toFixed(1)} speed=${s.speed.toFixed(0)}`);
     }
   }
   assert.ok(holesCleared > 50, `bot only met ${holesCleared} holes`);
+  assert.ok(chains.size > 20, `bot only met ${chains.size} chains`);
 });
 
 // Jumps so the whole bottle group passes through the middle of the airtime window.
 function botJump(s) {
-  if (!s.onGround || s.y > 0) return; // on a platform the bot just runs off the end
-  if (botJumpToPlatform(s)) return;
+  if (!s.onGround) return;
+  if (botJumpToPlatform(s) || s.y > 0) return;
   const pRight = PLAYER.x + PLAYER.w - 7;
   const pWidth = PLAYER.w - 14;
   const ahead = s.obstacles.filter((o) => o.x + o.w - 3 > PLAYER.x + 7);
@@ -249,28 +264,40 @@ function botJump(s) {
   if (d <= s.speed * t0) jump(s);
 }
 
-// Jumps so the feet land well inside the platform of the next hole.
-const T_UP = (JUMP_V + Math.sqrt(JUMP_V * JUMP_V - 2 * GRAVITY * PLATFORM_H)) / GRAVITY;
+// The bot crosses a hole hop by hop, aiming to land 40px inside each target:
+// - on the ground: the first platform over the next hole (only if the hole is still ahead);
+// - on a platform: the next platform of the same hole, or, from the last one, the ground past the hole.
 function botJumpToPlatform(s) {
   const left = PLAYER.x + 7;
   const pRight = PLAYER.x + PLAYER.w - 7;
-  const pit = s.pits.find((p) => p.x + p.w > left);
-  if (!pit) return false;
-  // Bottles in front of the pit are handled by the bottle logic.
-  if (s.obstacles.some((o) => o.x + o.w > left && o.x < pit.px)) return false;
-  if (pit.px - pRight <= s.speed * T_UP - 40) jump(s);
-  return true;
+  const hole = s.pits.find((p) => p.x + p.w > pRight);
+  if (!hole) return false;
+  const holeEnd = hole.x + hole.w;
+  const target = s.platforms.find(
+    (p) => p.x < holeEnd && p.x + p.w > Math.max(left, hole.x) && p.h - s.y < 110 && (s.y === 0 || p.x > pRight),
+  );
+  if (target) {
+    // Bottles in front of the platform are handled by the bottle logic.
+    if (s.y === 0 && s.obstacles.some((o) => o.x + o.w > left && o.x < target.x)) return false;
+    if (target.x - pRight <= s.speed * airtimeTo(target.h - s.y) - 40) jump(s);
+    return true;
+  }
+  if (s.y > 0) {
+    if (pRight + s.speed * airtimeTo(-s.y) >= holeEnd + 40) jump(s); // last platform: hop to the ground
+    return true;
+  }
+  return false;
 }
 
-// A state just before the hard part: one pit ahead, nothing else.
-function pitState(seed = 1) {
+// A state just before the hard part: one hole (with `count` platforms) ahead, nothing else. Like the
+// real spawner it leaves room for a run-up of more than a jump.
+function pitState(seed = 1, count = 1, speed = 450) {
   const s = runningState(seed);
-  s.speed = 450;
-  s.distance = PITS_FROM_SCORE / SCORE_PER_PX;
-  spawnPit(s);
-  const dx = s.pits[0].px - (PLAYER.x + 250);
-  s.pits[0].px -= dx;
-  s.pits[0].x -= dx;
+  s.speed = speed;
+  s.distance = (count > 1 ? CHAINS_FROM_SCORE : PITS_FROM_SCORE) / SCORE_PER_PX;
+  spawnHole(s, count);
+  const dx = s.pits[0].x - (PLAYER.x + 250 + speed);
+  for (const o of [...s.pits, ...s.platforms]) o.x -= dx;
   return s;
 }
 
@@ -290,21 +317,6 @@ test('no holes before the score threshold, some after', () => {
   assert.ok(pitsAfter > 200 * PIT_CHANCE * 0.5 && pitsAfter < 200, `pits after threshold: ${pitsAfter}`);
 });
 
-test('a hole is wider than a ground jump, and its platform has no bottles and overhangs both ends', () => {
-  for (const speed of [START_SPEED, 500, MAX_SPEED]) {
-    for (let seed = 1; seed <= 100; seed++) {
-      const s = createState(mulberry32(seed));
-      s.speed = speed;
-      spawnPit(s);
-      const [p] = s.pits;
-      assert.ok(p.w >= speed * AIRTIME + HOLE_MARGIN, `speed ${speed} seed ${seed}`);
-      assert.ok(p.px < p.x && p.px + p.pw > p.x + p.w);
-      assert.equal(s.obstacles.length, 0);
-      assert.ok(s.untilSpawn - p.pw >= speed * PLATFORM_AIRTIME, 'room to land after jumping off the platform');
-    }
-  }
-});
-
 test('running into a hole without jumping ends the game', () => {
   const s = pitState();
   advance(s, 3);
@@ -312,42 +324,11 @@ test('running into a hole without jumping ends the game', () => {
   assert.ok(s.y < -FALL_DEPTH);
 });
 
-test('jump onto the platform, then run off the end: lands on the ground past the hole', () => {
-  const s = pitState();
-  const holeEndWorld = s.pits[0].x + s.pits[0].w + s.distance; // the pit scrolls off screen before we land
-  let stood = false;
-  for (let i = 0; i < 6 * 60 && !(stood && s.onGround && s.y === 0); i++) {
-    botJump(s);
-    step(s, 1 / 60);
-    assert.equal(s.phase, 'running', `died at i=${i}`);
-    if (s.onGround && s.y === PLATFORM_H) stood = true;
-  }
-  assert.ok(stood, 'never stood on the platform');
-  assert.equal(s.y, 0);
-  assert.ok(PLAYER.x + 7 + s.distance > holeEndWorld, 'back on the ground but still over the hole');
-});
-
-test('jump off the platform in the middle of the hole: still lands past the hole', () => {
-  const s = pitState();
-  let jumped = false;
-  for (let i = 0; i < 6 * 60; i++) {
-    botJump(s);
-    if (s.onGround && s.y === PLATFORM_H && !jumped) {
-      jumped = true;
-      jump(s);
-    }
-    step(s, 1 / 60);
-    assert.equal(s.phase, 'running', `died at i=${i}`);
-    if (jumped && s.onGround && s.y === 0) break;
-  }
-  assert.ok(jumped && s.y === 0);
-});
-
 test('platforms are one-way: walking under one on the ground is fine', () => {
   const s = pitState();
   s.pits[0].x = 5000; // hole far away, platform start still overhead
-  s.pits[0].px = PLAYER.x - 20;
-  s.pits[0].pw = 400;
+  s.platforms[0].x = PLAYER.x - 20;
+  s.platforms[0].w = 400;
   step(s, 1 / 60);
   assert.equal(s.phase, 'running');
   assert.equal(s.y, 0);
@@ -356,8 +337,8 @@ test('platforms are one-way: walking under one on the ground is fine', () => {
 test('jumping up through a platform from below is not blocked', () => {
   const s = pitState();
   s.pits[0].x = 5000;
-  s.pits[0].px = PLAYER.x - 20;
-  s.pits[0].pw = 400;
+  s.platforms[0].x = PLAYER.x - 20;
+  s.platforms[0].w = 400;
   jump(s);
   let peak = 0;
   for (let i = 0; i < 20; i++) {
@@ -366,3 +347,162 @@ test('jumping up through a platform from below is not blocked', () => {
   }
   assert.ok(peak > PLATFORM_H + 20, `peak ${peak}`);
 });
+
+test('chains only appear from their score, and only on some holes', () => {
+  const at = (score, seed) => {
+    const a = createState(mulberry32(seed));
+    a.distance = score / SCORE_PER_PX;
+    for (let i = 0; i < 30; i++) {
+      a.platforms = [];
+      a.pits = [];
+      spawn(a);
+      if (a.platforms.length >= 2) return true;
+    }
+    return false;
+  };
+  for (let seed = 1; seed <= 20; seed++) assert.equal(at(CHAINS_FROM_SCORE - 1, seed), false);
+  let withChain = 0;
+  for (let seed = 1; seed <= 20; seed++) if (at(CHAINS_FROM_SCORE, seed)) withChain++;
+  assert.equal(withChain, 20);
+});
+
+test('chains have 2 to 4 platforms, all of those lengths occur, never more than 4', () => {
+  const counts = new Set();
+  for (let seed = 1; seed <= 300; seed++) {
+    const s = createState(mulberry32(seed));
+    s.speed = 600;
+    spawnChain(s);
+    counts.add(s.platforms.length);
+  }
+  assert.deepEqual([...counts].sort(), [2, 3, 4]);
+});
+
+test('hole geometry holds for 1 to 4 platforms at every speed', () => {
+  assert.ok(HIGH_H > (JUMP_V * JUMP_V) / (2 * GRAVITY), 'a ground jump must not reach the high height');
+  const feet = PLAYER.w - 14;
+  for (const speed of [START_SPEED, 450, 575, MAX_SPEED]) {
+    for (const count of [1, 2, 3, 4]) {
+      for (let seed = 1; seed <= 200; seed++) {
+        const s = createState(mulberry32(seed));
+        s.speed = speed;
+        spawnHole(s, count);
+        const [hole] = s.pits;
+        const holeEnd = hole.x + hole.w;
+        const plats = s.platforms;
+        const first = plats[0];
+        const last = plats[count - 1];
+        const tag = `speed ${speed} count ${count} seed ${seed}`;
+        assert.equal(plats.length, count, tag);
+        assert.equal(s.obstacles.length, 0, 'no bottles on or around the platforms');
+        assert.ok(hole.w >= speed * AIRTIME + HOLE_MARGIN, `a ground jump could clear the hole: ${tag}`);
+        assert.equal(first.h, PLATFORM_H, tag);
+        for (const p of plats) {
+          assert.ok(p.w >= speed * 0.3, `platform shorter than 0.3 s, too short to tap again on it: ${tag}`); // fixed on purpose: not tied to the constant
+          assert.ok(p.w >= CHAIN_PLATFORM_W, tag);
+          assert.ok(p.h === PLATFORM_H || p.h === HIGH_H, tag);
+          if (count > 1) assert.ok(p.w < hole.w, `a platform spans the hole alone: ${tag}`);
+        }
+        // Ground edge -> first platform: it starts at most PLATFORM_PRE before the hole, and not so far
+        // in that a jump from the ground edge would fall short of it.
+        assert.ok(first.x >= hole.x - PLATFORM_PRE - 1e-9, tag);
+        assert.ok(first.x >= SPAWN_X + speed * airtimeTo(PLATFORM_H) - 1e-9, `no run-up before the first platform: ${tag}`);
+        assert.ok(first.x - hole.x <= speed * airtimeTo(PLATFORM_H) - CHAIN_WINDOW + 1e-9, `first platform out of reach: ${tag}`);
+        // Between platforms: a gap to hop, one jump long.
+        for (let i = 1; i < count; i++) {
+          const gap = plats[i].x - (plats[i - 1].x + plats[i - 1].w);
+          assert.ok(gap > 0, `there is a gap to hop: ${tag}`);
+          const reach = speed * airtimeTo(plats[i].h - plats[i - 1].h);
+          const offset = plats[i].x - plats[i - 1].x - reach;
+          assert.ok(offset >= CHAIN_PITCH_MIN - 1e-9 && offset <= CHAIN_PITCH_MIN + CHAIN_PITCH_RANDOM, `hop ${i}: ${tag}`);
+        }
+        // Last platform -> ground: ends at most PLATFORM_POST past the hole, and not so far short that a
+        // jump from its end would land in the hole.
+        const lastEnd = last.x + last.w;
+        assert.ok(lastEnd <= holeEnd + PLATFORM_POST + 1e-9, tag);
+        assert.ok(lastEnd + speed * airtimeTo(-last.h) >= holeEnd + CHAIN_WINDOW, `last platform too short of the far edge: ${tag}`);
+        // With a chain, the first platform alone cannot clear the hole.
+        if (count > 1) assert.ok(first.x + first.w + speed * PLATFORM_AIRTIME < holeEnd + feet, tag);
+        const extent = Math.max(lastEnd, holeEnd);
+        assert.ok(s.untilSpawn - (extent - first.x) >= speed * airtimeTo(-last.h), `no room after: ${tag}`);
+      }
+    }
+  }
+});
+
+test('both ends of a hole vary: overhang or a jumpable gap', () => {
+  let gapIn = 0;
+  let overhangIn = 0;
+  let gapOut = 0;
+  let overhangOut = 0;
+  for (const count of [1, 2, 3, 4]) {
+    for (let seed = 1; seed <= 200; seed++) {
+      const s = createState(mulberry32(seed));
+      s.speed = 575;
+      spawnHole(s, count);
+      const [hole] = s.pits;
+      const last = s.platforms[count - 1];
+      if (s.platforms[0].x > hole.x) gapIn++;
+      else overhangIn++;
+      if (last.x + last.w < hole.x + hole.w) gapOut++;
+      else overhangOut++;
+    }
+  }
+  assert.ok(gapIn > 100 && overhangIn > 100, `ground->first: gap ${gapIn}, overhang ${overhangIn}`);
+  assert.ok(gapOut > 100 && overhangOut > 100, `last->ground: gap ${gapOut}, overhang ${overhangOut}`);
+});
+
+for (const count of [1, 2, 3, 4]) {
+  test(`hole with ${count} platform(s): the bot steps on every platform, then lands on the ground past the hole`, () => {
+    for (const speed of [450, 750]) {
+      for (let seed = 1; seed <= 30; seed++) {
+        const s = pitState(seed, count, speed);
+        const chain = [...s.platforms];
+        const holeEndWorld = s.pits[0].x + s.pits[0].w + s.distance;
+        const visited = new Set();
+        let landed = false;
+        for (let i = 0; i < 12 * 60 && !landed; i++) {
+          botJump(s);
+          step(s, 1 / 60);
+          const tag = `speed ${speed} seed ${seed} i=${i} y=${s.y}`;
+          assert.equal(s.phase, 'running', `died: ${tag}`);
+          for (const p of chain) {
+            if (s.onGround && s.y === p.h && PLAYER.x + PLAYER.w - 7 > p.x && PLAYER.x + 7 < p.x + p.w) visited.add(p);
+          }
+          landed = visited.size === count && s.onGround && s.y === 0;
+        }
+        assert.ok(landed, `speed ${speed} seed ${seed}: stood on ${visited.size} of ${count}, never landed`);
+        assert.ok(PLAYER.x + 7 + s.distance > holeEndWorld);
+      }
+    }
+  });
+}
+
+test('a ground jump cannot land on a high platform', () => {
+  const s = pitState();
+  s.platforms = [{ x: PLAYER.x - 100, w: 600, h: HIGH_H }];
+  s.pits[0].x = 5000;
+  jump(s);
+  let peak = 0;
+  for (let i = 0; i < 60 && !s.onGround; i++) {
+    step(s, 1 / 60);
+    peak = Math.max(peak, s.y);
+  }
+  assert.ok(peak < HIGH_H, `peak ${peak}`);
+  assert.equal(s.y, 0);
+});
+
+test('chain: skipping the hop (running off the ledge) falls into the hole', () => {
+  const s = pitState(1, 2);
+  let onLedge = false;
+  for (let i = 0; i < 8 * 60 && s.phase === 'running'; i++) {
+    if (!onGround75(s)) botJump(s); // jumps onto the ledge, then does nothing
+    step(s, 1 / 60);
+    if (onGround75(s)) onLedge = true;
+  }
+  assert.ok(onLedge);
+  assert.equal(s.phase, 'gameover');
+});
+
+function onGround75(s) {
+  return s.onGround && s.y === 75;
+}
