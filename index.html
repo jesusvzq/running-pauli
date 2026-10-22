@@ -12,7 +12,11 @@
   <main id="wrap">
     <header id="hud">
       <div id="hearts" aria-label="Lives"><svg class="heart" viewBox="-12 -12 24 24"><path d="M0 10.8C-18 -1.2 -9.6 -13.2 0 -4.2C9.6 -13.2 18 -1.2 0 10.8Z"/></svg><svg class="heart" viewBox="-12 -12 24 24"><path d="M0 10.8C-18 -1.2 -9.6 -13.2 0 -4.2C9.6 -13.2 18 -1.2 0 10.8Z"/></svg><svg class="heart" viewBox="-12 -12 24 24"><path d="M0 10.8C-18 -1.2 -9.6 -13.2 0 -4.2C9.6 -13.2 18 -1.2 0 10.8Z"/></svg><svg class="heart" viewBox="-12 -12 24 24"><path d="M0 10.8C-18 -1.2 -9.6 -13.2 0 -4.2C9.6 -13.2 18 -1.2 0 10.8Z"/></svg><svg class="heart" viewBox="-12 -12 24 24"><path d="M0 10.8C-18 -1.2 -9.6 -13.2 0 -4.2C9.6 -13.2 18 -1.2 0 10.8Z"/></svg></div>
-      <div id="score" aria-label="Score"></div>
+      <div id="score" aria-label="Score">
+        <span id="hi"></span>
+        <svg class="score-cat" viewBox="0 0 36 24" aria-hidden="true"><path d="M2 17Q-3 12 2 6" fill="none" stroke="#b8702a" stroke-width="3" stroke-linecap="round"/><ellipse cx="15" cy="17" rx="13" ry="7" fill="#f0a050" stroke="#1a1a1a" stroke-width="1.5"/><path d="M22 12L23 2L28 7L32 2L34 12Q34 20 28 20Q22 20 22 12Z" fill="#f0a050" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/><rect x="25" y="11" width="2" height="2" fill="#1a1a1a"/><rect x="30" y="11" width="2" height="2" fill="#1a1a1a"/></svg>
+        <span id="points"></span>
+      </div>
     </header>
     <canvas id="game" aria-label="Running Pauli game: tap, click or press space to jump"></canvas>
   </main>

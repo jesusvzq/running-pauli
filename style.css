@@ -73,3 +73,25 @@ canvas {
     width: min(100vw, calc(100dvh * 800 / 468));
   }
 }
+
+#score {
+  display: flex;
+  align-items: center;
+  gap: 1.2cqw;
+}
+
+#hi {
+  display: none; /* hidden for now */
+  font-size: 1.8cqw;
+  opacity: 0.6;
+}
+
+.score-cat {
+  width: 4.2cqw;
+  height: 2.8cqw;
+}
+
+#points {
+  font-size: 3.2cqw;
+  color: #1a1a1a;
+}

@@ -622,7 +622,8 @@ const pad = (n) => String(n).padStart(5, '0');
 
 // Hearts and score live in an HTML bar above the canvas; only touch the DOM when the text changes.
 const heartEls = [...document.querySelectorAll('#hearts .heart')];
-const scoreEl = document.getElementById('score');
+const hiEl = document.getElementById('hi');
+const pointsEl = document.getElementById('points');
 let shownLives = -1;
 let shownScore = '';
 
@@ -631,10 +632,11 @@ function updateHud() {
     shownLives = state.lives;
     heartEls.forEach((el, i) => el.classList.toggle('lost', i >= state.lives));
   }
-  const text = `HI ${pad(hi)}  ${pad(L.getScore(state))}`;
+  const text = `${pad(hi)} ${pad(L.getScore(state))}`;
   if (text !== shownScore) {
     shownScore = text;
-    scoreEl.textContent = text;
+    hiEl.textContent = `HI ${pad(hi)}`;
+    pointsEl.textContent = pad(L.getScore(state));
   }
 }
 
