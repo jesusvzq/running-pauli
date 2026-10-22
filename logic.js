@@ -16,17 +16,30 @@ export const ACCEL = 8;
 
 export const MAX_LIVES = 5;
 
-// Cats float in the air; touching one gives a heart back. They only spawn while a heart is missing.
-export const CAT = { w: 36, h: 26, air: 95 }; // air: height above the ground of a floating cat; a jump peaks at 133
-export const CAT_GROUND_CHANCE = 0.4; // of the cats; a ground cat is picked up by running into it
-export const CAT_CLEAR = 150; // a ground cat needs this much free ground around its spawn point
-export const CAT_FIRST = 6000; // distance to the first spawn check
-export const CAT_MIN = 5000; // distance between spawn checks
-export const CAT_RANDOM = 5000;
+// Cats are the score: each one collected is worth CAT_POINTS. They float at random heights (a ground cat is
+// picked up by running into it) and come singly or in small groups.
+export const CAT = { w: 36, h: 26, air: 95 }; // air: fallback height of a cat that would sit on crowded ground
+export const CAT_POINTS = 10;
+export const CAT_MAX_BOTTOM = 160; // highest cat while running: a jump peaks at 133 and the body is 60 tall; above the high platforms (140)
+export const CAT_GROUND_BELOW = 30; // a cat this low needs free ground around its spawn point
+export const CAT_CLEAR = 150; // free ground needed on each side of a ground cat
+export const CAT_FIRST = 600; // distance to the first spawn check
+export const CAT_MIN = 1000; // distance between spawn checks
+export const CAT_RANDOM = 1000;
+export const CAT_GROUP_CHANCE = 0.3;
+export const CAT_GROUP_MAX = 3;
+export const CAT_GROUP_SPACING = 70;
+// Behind the club and while shining Pauli is a magnet: cats this close (centre to centre) are pulled in and
+// absorbed, and a swarm of cats over the whole height of the canvas keeps coming during the flight.
+export const ABSORB_RADIUS = 200;
+export const ABSORB_SPEED = 900;
+export const CAT_FLY_MIN = 250;
+export const CAT_FLY_RANDOM = 200;
 
-// The Holiday club: every CLUB_EVERY score a building scrolls in. Pauli passes behind it, then flies
+// The Holiday club: every CLUB_EVERY of progress (distance * SCORE_PER_PX) a building scrolls in. Pauli passes behind it, then flies
 // (and shines, immune to bottles and lava) for FLY_TIME seconds before falling back to the ground.
-export const CLUB_EVERY = 2000; // score between clubs
+// Entering it is the only way to get all the hearts back.
+export const CLUB_EVERY = 1000; // progress between clubs
 export const CLUB = { w: 380, h: 250 };
 export const FLY_TIME = 10;
 export const NO_LAVA_AFTER = 800; // px of lava-free ground ahead once the shine ends
@@ -50,7 +63,7 @@ export const BOTTLE_TYPES = [
 ];
 export const BOTTLE_SPACING = 4;
 
-// Holes and flying platforms appear from this score on.
+// Holes and flying platforms appear from this progress on (distance * SCORE_PER_PX; the shown score counts cats).
 export const PITS_FROM_SCORE = 300;
 export const PIT_CHANCE = 0.35;
 export const PLATFORM_H = 75; // top of a platform above the ground; the jump peaks at 133
@@ -104,6 +117,7 @@ export function createState(rng = Math.random) {
     overAt: 0,
     speed: START_SPEED,
     distance: 0,
+    score: 0,
     y: 0,
     vy: 0,
     onGround: true,
@@ -128,6 +142,7 @@ export function start(state) {
     phase: 'running',
     speed: START_SPEED,
     distance: 0,
+    score: 0,
     y: 0,
     vy: 0,
     onGround: true,
@@ -310,6 +325,43 @@ function groundIsClear(state) {
   return state.untilSpawn > CAT_CLEAR + CAT.w && [...state.obstacles, ...state.pits, ...state.platforms].every(free);
 }
 
+// A hole or one of its platforms is at this x.
+function overHole(state, x) {
+  return [...state.pits, ...state.platforms].some((a) => a.x < x + CAT.w && a.x + a.w > x);
+}
+
+// Spawns one cat or a small group off the right edge, at random heights. While shining the cats fill the
+// whole height of the canvas, since she can fly up to them.
+function spawnCats(state) {
+  const { rng } = state;
+  const flying = state.glow || state.flyLeft > 0;
+  const top = flying ? GROUND_Y - CAT.h : CAT_MAX_BOTTOM;
+  const count = rng() < CAT_GROUP_CHANCE ? 2 + Math.floor(rng() * (CAT_GROUP_MAX - 1)) : 1;
+  let bottom = rng() * top;
+  for (let i = 0; i < count; i++) {
+    if (i > 0) bottom = Math.min(top, Math.max(0, bottom + (rng() - 0.5) * 60));
+    const x = SPAWN_X + i * CAT_GROUP_SPACING;
+    if (bottom < HIGH_H && overHole(state, x)) continue; // under a platform or over lava: nobody can get it
+    const low = bottom < CAT_GROUND_BELOW && !flying && !groundIsClear(state);
+    state.cats.push({ x, bottom: low ? CAT.air : bottom });
+  }
+}
+
+// Cats near a magnet Pauli fly to her.
+function pullCats(state, dt) {
+  const px = PLAYER.x + PLAYER.w / 2;
+  const py = state.y + PLAYER.h / 2;
+  for (const c of state.cats) {
+    const dx = px - (c.x + CAT.w / 2);
+    const dy = py - (c.bottom + CAT.h / 2);
+    const d = Math.hypot(dx, dy);
+    if (d === 0 || d >= ABSORB_RADIUS) continue;
+    const move = Math.min(d, ABSORB_SPEED * dt);
+    c.x += (dx / d) * move;
+    c.bottom += (dy / d) * move;
+  }
+}
+
 function touchesCat(state, c) {
   const [left, right] = feetRange();
   return right > c.x && left < c.x + CAT.w && state.y + PLAYER.h > c.bottom && state.y < c.bottom + CAT.h;
@@ -341,11 +393,13 @@ export function step(state, rawDt) {
   const [feetL, feetR] = feetRange();
   const wasInside = state.inside;
   state.inside = state.clubs.some((c) => feetR > c.x && feetL < c.x + c.w);
+  if (!wasInside && state.inside) state.lives = MAX_LIVES; // the club is the only place to get hearts back
   if (wasInside && !state.inside) {
     state.flyLeft = FLY_TIME;
     state.glow = true;
     state.onGround = false;
     state.vy = FLAP_V; // she bursts out of the club
+    state.untilCat = 0; // the swarm starts right away
   }
 
   // Standing on something that has scrolled away: start falling.
@@ -380,12 +434,11 @@ export function step(state, rawDt) {
   for (const c of state.cats) c.x -= dx;
   state.cats = state.cats.filter((c) => c.x + CAT.w > -20);
   state.untilCat -= dx;
-  if (state.untilCat <= 0) {
-    if (state.lives < MAX_LIVES && state.clubs.length === 0) {
-      const ground = state.rng() < CAT_GROUND_CHANCE && groundIsClear(state);
-      state.cats.push({ x: SPAWN_X, bottom: ground ? 0 : CAT.air });
-    }
-    state.untilCat = CAT_MIN + state.rng() * CAT_RANDOM;
+  // No new cats while a club is on screen; the check stays due and fires once it has gone.
+  if (state.untilCat <= 0 && state.clubs.length === 0) {
+    spawnCats(state);
+    const flying = state.glow || state.flyLeft > 0;
+    state.untilCat = flying ? CAT_FLY_MIN + state.rng() * CAT_FLY_RANDOM : CAT_MIN + state.rng() * CAT_RANDOM;
   }
 
   state.untilSpawn -= dx;
@@ -397,9 +450,10 @@ export function step(state, rawDt) {
     state.noPitUntil = state.distance + NO_LAVA_AFTER;
   }
 
+  if (state.inside || state.glow) pullCats(state, dt);
   const got = state.cats.filter((c) => touchesCat(state, c));
   if (got.length > 0) {
-    state.lives = Math.min(MAX_LIVES, state.lives + got.length);
+    state.score += got.length * CAT_POINTS;
     state.cats = state.cats.filter((c) => !got.includes(c));
   }
 
@@ -418,5 +472,5 @@ export function step(state, rawDt) {
 }
 
 export function getScore(state) {
-  return Math.floor(state.distance * SCORE_PER_PX);
+  return state.score;
 }

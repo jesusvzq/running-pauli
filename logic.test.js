@@ -4,6 +4,11 @@ import {
   AIRTIME,
   CAT,
   CAT_FIRST,
+  CAT_POINTS,
+  CAT_MAX_BOTTOM,
+  CAT_FLY_MIN,
+  CAT_FLY_RANDOM,
+  ABSORB_RADIUS,
   CLUB,
   CLUB_EVERY,
   NO_LAVA_AFTER,
@@ -63,6 +68,9 @@ function mulberry32(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+// Progress through the run (what the club and the hole unlocks follow); the shown score counts cats.
+const progress = (s) => Math.floor(s.distance * SCORE_PER_PX);
 
 // step() clamps dt, so advance time in frame-sized steps like the real loop does.
 function advance(s, seconds) {
@@ -223,7 +231,7 @@ test('gap after a group is at least the jump distance at the current speed', () 
   }
 });
 
-test('speed ramps up and is capped; score grows with distance; obstacle list stays bounded', () => {
+test('speed ramps up and is capped; distance grows; obstacle list stays bounded', () => {
   const s = createState(mulberry32(3));
   start(s);
   // A bot that jumps at the ideal moment. It must survive, and the speed must hit the cap.
@@ -237,7 +245,7 @@ test('speed ramps up and is capped; score grows with distance; obstacle list sta
     maxObstacles = Math.max(maxObstacles, s.obstacles.length);
   }
   assert.equal(s.speed, MAX_SPEED);
-  assert.ok(getScore(s) > 1000);
+  assert.ok(progress(s) > 1000);
   assert.ok(maxObstacles < 12, `obstacles piled up: ${maxObstacles}`);
 });
 
@@ -604,53 +612,61 @@ test('falling into a hole kills whatever the hearts', () => {
   assert.equal(s.lives, MAX_LIVES, 'the hearts were not the cause');
 });
 
-test('a cat is in the air and gives a heart back when jumped into', () => {
+test('a cat is worth points and gives no heart', () => {
   const s = runningState();
   s.lives = 2;
   s.cats = [{ x: PLAYER.x, bottom: CAT.air }];
   step(s, 1 / 60);
-  assert.equal(s.lives, 2, 'running under it does nothing');
+  assert.equal(s.score, 0, 'running under it does nothing');
   s.y = 60;
   s.onGround = false;
   s.vy = 0;
   step(s, 1 / 60);
-  assert.equal(s.lives, 3);
+  assert.equal(s.score, CAT_POINTS);
+  assert.equal(getScore(s), CAT_POINTS);
+  assert.equal(s.lives, 2, 'hearts only come back in the club');
   assert.equal(s.cats.length, 0);
 });
 
-test('a cat never takes hearts past the maximum', () => {
+test('the score is cats, not distance', () => {
   const s = runningState();
-  s.cats = [{ x: PLAYER.x, bottom: CAT.air }];
-  s.y = 60;
-  s.onGround = false;
-  step(s, 1 / 60);
-  assert.equal(s.lives, MAX_LIVES);
-  assert.equal(s.cats.length, 0);
+  s.untilCat = Infinity;
+  advance(s, 5);
+  assert.ok(s.distance > 1000);
+  assert.equal(getScore(s), 0);
 });
 
-test('cats spawn only while a heart is missing', () => {
-  const full = runningState();
-  full.untilCat = 0;
-  step(full, 1 / 60);
-  assert.equal(full.cats.length, 0);
-  assert.ok(full.untilCat > 0, 'the check is rescheduled');
-
-  const hurt = runningState();
-  hurt.lives = MAX_LIVES - 1;
-  hurt.untilCat = 0;
-  step(hurt, 1 / 60);
-  assert.equal(hurt.cats.length, 1);
-  assert.ok(hurt.cats[0].x > SPAWN_X - 20);
+test('cats spawn whatever the hearts, at varied heights, sometimes in groups', () => {
+  const heights = new Set();
+  let groups = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const s = runningState(seed);
+    assert.equal(s.lives, MAX_LIVES);
+    s.untilCat = 0;
+    step(s, 1 / 60);
+    assert.ok(s.cats.length >= 1 && s.cats.length <= 3);
+    assert.ok(s.untilCat > 0, 'the check is rescheduled');
+    if (s.cats.length > 1) groups++;
+    for (const c of s.cats) {
+      assert.ok(c.x > SPAWN_X - 20);
+      assert.ok(c.bottom >= 0 && c.bottom <= CAT_MAX_BOTTOM);
+      heights.add(Math.round(c.bottom / 20));
+    }
+  }
+  assert.ok(heights.size >= 4, `heights vary: ${heights.size}`);
+  assert.ok(groups > 0 && groups < 60, `some groups: ${groups}`);
 });
 
-test('a run starts with no cats and restart clears them', () => {
+test('a run starts with no cats and restart clears them and the score', () => {
   const s = runningState();
   assert.equal(s.cats.length, 0);
   assert.equal(s.untilCat, CAT_FIRST);
   s.cats = [{ x: 300, bottom: 0 }];
   s.untilCat = 5;
+  s.score = 70;
   start(s);
   assert.equal(s.cats.length, 0);
+  assert.equal(s.score, 0);
   assert.equal(s.untilCat, CAT_FIRST);
 });
 
@@ -659,32 +675,52 @@ test('a cat that scrolls off is dropped, and a ground jump reaches the cat', () 
   s.cats = [{ x: -CAT.w - 30, bottom: 0 }];
   step(s, 1 / 60);
   assert.equal(s.cats.length, 0);
-  assert.ok(JUMP_V * JUMP_V / (2 * GRAVITY) + PLAYER.h > CAT.air);
+  assert.ok(JUMP_V * JUMP_V / (2 * GRAVITY) + PLAYER.h > CAT_MAX_BOTTOM);
 });
 
 test('a ground cat is collected by running into it, and spawns only on clear ground', () => {
   const s = runningState();
-  s.lives = 2;
   s.cats = [{ x: PLAYER.x, bottom: 0 }];
   step(s, 1 / 60);
-  assert.equal(s.lives, 3);
+  assert.equal(s.score, CAT_POINTS);
 
   const rngLow = () => 0; // always picks a ground cat
   const withRng = () => Object.assign(runningState(), { rng: rngLow });
   const clear = withRng();
-  clear.lives = 2;
   clear.untilCat = 0;
   clear.untilSpawn = 5000;
   step(clear, 1 / 60);
   assert.equal(clear.cats[0].bottom, 0);
 
   const blocked = withRng();
-  blocked.lives = 2;
   blocked.untilCat = 0;
   blocked.untilSpawn = 5000;
   blocked.obstacles = [{ x: SPAWN_X, w: 22, h: 44 }];
   step(blocked, 1 / 60);
   assert.equal(blocked.cats[0].bottom, CAT.air, 'floats over a bottle instead');
+});
+
+test('no cat spawns under a platform or over lava, but one can float above the platforms', () => {
+  const s = runningState();
+  s.rng = () => 0.5; // a single cat, bottom 70
+  s.pits = [{ x: SPAWN_X - 100, w: 400 }];
+  s.platforms = [{ x: SPAWN_X - 50, w: 200, h: PLATFORM_H }];
+  s.untilCat = 0;
+  step(s, 1 / 60);
+  assert.equal(s.cats.length, 0);
+  assert.ok(s.untilCat > 0);
+  s.rng = () => 0.999999; // bottom at the top of the range, above every platform
+  s.untilCat = 0;
+  step(s, 1 / 60);
+  assert.equal(s.cats.length, 1);
+});
+
+test('a mortal Pauli has to touch a cat: one that is close but not touching stays', () => {
+  const s = runningState();
+  s.cats = [{ x: PLAYER.x + 100, bottom: 0 }];
+  step(s, 1 / 60);
+  assert.equal(s.cats.length, 1);
+  assert.equal(s.score, 0);
 });
 
 // ---- Holiday club ----
@@ -699,7 +735,7 @@ function clubState(seed = 1) {
   return s;
 }
 
-test('a club replaces the next obstacle at score 2000, then again every 2000', () => {
+test('a club replaces the next obstacle at CLUB_EVERY progress, then again every CLUB_EVERY', () => {
   const s = createState(mulberry32(5));
   start(s);
   const seen = [];
@@ -709,17 +745,17 @@ test('a club replaces the next obstacle at score 2000, then again every 2000', (
     s.glow = true; // keep the test about spawning: nothing can kill
     const before = s.clubs.length;
     step(s, 1 / 60);
-    if (s.clubs.length > before) seen.push(getScore(s));
+    if (s.clubs.length > before) seen.push(progress(s));
   }
   assert.equal(seen.length, 2);
   assert.ok(seen[0] >= CLUB_EVERY && seen[0] < CLUB_EVERY + 100, `first club at ${seen[0]}`);
   assert.ok(seen[1] >= 2 * CLUB_EVERY && seen[1] < 2 * CLUB_EVERY + 100, `second club at ${seen[1]}`);
 });
 
-test('no club before score 2000', () => {
+test('no club before CLUB_EVERY progress', () => {
   const s = createState(mulberry32(2));
   start(s);
-  for (let i = 0; i < 20 * 60 && getScore(s) < CLUB_EVERY - 50; i++) {
+  for (let i = 0; i < 20 * 60 && progress(s) < CLUB_EVERY - 50; i++) {
     s.lives = MAX_LIVES;
     step(s, 1 / 60);
     assert.equal(s.clubs.length, 0);
@@ -833,4 +869,65 @@ test('flying is flappy: gravity pulls down, each tap flaps up, the canvas top is
   for (let i = 0; i < 90; i++) { if (i % 6 === 0) flap(f); step(f, 1 / 60); top = Math.max(top, f.y); }
   assert.equal(top, FLY_CEILING, 'flapping non-stop reaches the ceiling and never passes it');
   assert.equal(flap(runningState()), false, 'no flapping outside the flight');
+});
+
+test('entering the club refills every heart, and nothing else does', () => {
+  const s = clubState();
+  s.lives = 1;
+  step(s, 1 / 60);
+  assert.equal(s.inside, true);
+  assert.equal(s.lives, MAX_LIVES);
+});
+
+test('behind the club and while shining, cats close by are pulled in and absorbed for points', () => {
+  const s = clubState();
+  s.cats = [
+    { x: PLAYER.x + 120, bottom: 30 },
+    { x: PLAYER.x + 60, bottom: 150 }, // above her, not touching
+    { x: PLAYER.x + ABSORB_RADIUS + 300, bottom: 30 }, // far away: stays
+  ];
+  advance(s, 0.6);
+  assert.equal(s.score, 2 * CAT_POINTS);
+  assert.equal(s.cats.length, 1);
+
+  const f = clubState();
+  while (!f.glow) step(f, 1 / 60);
+  f.cats = [{ x: PLAYER.x + 80, bottom: 200 }];
+  advance(f, 0.5);
+  assert.equal(f.score, CAT_POINTS, 'absorbed in flight without touching it');
+});
+
+test('without the shine the same cats are not pulled', () => {
+  const s = runningState();
+  s.untilCat = Infinity;
+  s.cats = [{ x: PLAYER.x + 120, bottom: 150 }];
+  const before = s.cats[0].bottom;
+  advance(s, 0.2);
+  assert.equal(s.cats[0].bottom, before);
+  assert.equal(s.score, 0);
+});
+
+test('a swarm of cats over the whole canvas height comes during the flight', () => {
+  const s = clubState();
+  s.speed = 600;
+  while (!s.glow) step(s, 1 / 60);
+  s.nextClub = Infinity;
+  s.cats = [];
+  s.lives = 1e6;
+  let spawned = 0;
+  let max = 0;
+  const seen = new Set();
+  for (let i = 0; i < 4 * 60; i++) {
+    const before = s.cats.length + s.score / CAT_POINTS;
+    step(s, 1 / 60);
+    spawned += s.cats.length + s.score / CAT_POINTS - before;
+    for (const c of s.cats) {
+      max = Math.max(max, c.bottom);
+      seen.add(Math.round(c.bottom / 40));
+    }
+    s.cats = s.cats.filter((c) => c.x > PLAYER.x + 400); // keep them away from her so they pile up unabsorbed
+  }
+  assert.ok(spawned >= 4, `swarm: ${spawned} in 4 s`);
+  assert.ok(max > CAT_MAX_BOTTOM + 40, `reaches above the running range: ${max}`);
+  assert.ok(CAT_FLY_MIN + CAT_FLY_RANDOM < 1000);
 });
