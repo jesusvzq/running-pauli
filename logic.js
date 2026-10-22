@@ -19,9 +19,11 @@ export const MAX_LIVES = 5;
 // Cats are the score: each one collected is worth CAT_POINTS. They float at random heights (a ground cat is
 // picked up by running into it) and come singly or in small groups.
 export const CAT = { w: 36, h: 26, air: 95 }; // air: fallback height of a cat that would sit on crowded ground
-export const CAT_POINTS = 10;
+export const CAT_POINTS = 1;
 export const CAT_MAX_BOTTOM = 160; // highest cat while running: a jump peaks at 133 and the body is 60 tall; above the high platforms (140)
 export const CAT_GROUND_BELOW = 30; // a cat this low needs free ground around its spawn point
+export const CAT_ABOVE_BOTTLE = 20; // gap between a bottle's top and a cat over it
+export const CAT_BOTTLE_GROUP = 90; // widest group of bottles that can spawn at the right edge, about
 export const CAT_CLEAR = 150; // free ground needed on each side of a ground cat
 export const CAT_FIRST = 600; // distance to the first spawn check
 export const CAT_MIN = 1000; // distance between spawn checks
@@ -343,7 +345,12 @@ function spawnCats(state) {
     const x = SPAWN_X + i * CAT_GROUP_SPACING;
     if (bottom < HIGH_H && overHole(state, x)) continue; // under a platform or over lava: nobody can get it
     const low = bottom < CAT_GROUND_BELOW && !flying && !groundIsClear(state);
-    state.cats.push({ x, bottom: low ? CAT.air : bottom });
+    // Over a bottle a cat floats above it, so she can jump and collect it instead of crashing into the bottle.
+    const tallest = Math.max(0, ...state.obstacles.filter((o) => o.x < x + CAT.w && o.x + o.w > x).map((o) => o.h));
+    // Bottles are also about to spawn right behind (or over) this cat: stay above the tallest type.
+    const soon = state.untilSpawn < count * CAT_GROUP_SPACING + CAT.w + CAT_BOTTLE_GROUP;
+    const lift = soon ? Math.max(...BOTTLE_TYPES.map((t) => t.h)) + CAT_ABOVE_BOTTLE : tallest > 0 ? tallest + CAT_ABOVE_BOTTLE : 0;
+    state.cats.push({ x, bottom: Math.max(low ? CAT.air : bottom, lift) });
   }
 }
 
@@ -431,6 +438,9 @@ export function step(state, rawDt) {
     }
   }
 
+  state.untilSpawn -= dx;
+  if (state.untilSpawn <= 0) spawn(state);
+
   for (const c of state.cats) c.x -= dx;
   state.cats = state.cats.filter((c) => c.x + CAT.w > -20);
   state.untilCat -= dx;
@@ -440,9 +450,6 @@ export function step(state, rawDt) {
     const flying = state.glow || state.flyLeft > 0;
     state.untilCat = flying ? CAT_FLY_MIN + state.rng() * CAT_FLY_RANDOM : CAT_MIN + state.rng() * CAT_RANDOM;
   }
-
-  state.untilSpawn -= dx;
-  if (state.untilSpawn <= 0) spawn(state);
 
   // Shine ends once she is back on solid ground.
   if (state.glow && state.flyLeft === 0 && state.onGround && !state.inside && !overPit(state)) {

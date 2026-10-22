@@ -715,6 +715,33 @@ test('no cat spawns under a platform or over lava, but one can float above the p
   assert.equal(s.cats.length, 1);
 });
 
+test('a cat never shares a spot with a bottle: over one it floats above its top, so a jump collects it', () => {
+  const low = () => 0; // would be a ground cat
+  const s = Object.assign(runningState(), { rng: low });
+  s.obstacles = [{ x: SPAWN_X, w: 26, h: 68 }];
+  s.untilCat = 0;
+  step(s, 1 / 60);
+  assert.ok(s.cats[0].bottom >= 68 + 10, `above the bottle: ${s.cats[0].bottom}`);
+  assert.ok(s.cats[0].bottom + CAT.h < JUMP_V * JUMP_V / (2 * GRAVITY) + PLAYER.h, 'a jump reaches it');
+
+  const soon = Object.assign(runningState(), { rng: low });
+  soon.untilSpawn = 50; // bottles are about to spawn at the same place
+  soon.untilCat = 0;
+  step(soon, 1 / 60);
+  assert.ok(soon.cats[0].bottom >= 68 + 10);
+
+  for (let seed = 1; seed <= 200; seed++) {
+    const g = runningState(seed);
+    g.obstacles = [{ x: SPAWN_X + 20, w: 24, h: 56 }];
+    g.untilCat = 0;
+    step(g, 1 / 60);
+    for (const c of g.cats) {
+      const over = g.obstacles.some((o) => o.x < c.x + CAT.w && o.x + o.w > c.x);
+      assert.ok(!over || c.bottom >= 56, `seed ${seed}: cat inside a bottle`);
+    }
+  }
+});
+
 test('a mortal Pauli has to touch a cat: one that is close but not touching stays', () => {
   const s = runningState();
   s.cats = [{ x: PLAYER.x + 100, bottom: 0 }];
