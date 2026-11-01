@@ -43,6 +43,11 @@ function saveHi(value) {
   }
 }
 
+// Bottle obstacles are drawn with this picture, at the obstacle's height and the picture's own width,
+// centred on the hitbox; the vector bottle stays as the fallback until it loads.
+const bottleImg = new Image();
+bottleImg.src = 'assets/cruzcampo.png';
+
 let faceImg = null;
 if (FACE_SRC) {
   faceImg = new Image();
@@ -377,6 +382,11 @@ function drawBottle(o) {
   const x = o.x;
   const y = L.GROUND_Y - o.h;
   const { w, h } = o;
+  if (bottleImg.complete && bottleImg.naturalWidth > 0) {
+    const iw = (h * bottleImg.naturalWidth) / bottleImg.naturalHeight;
+    ctx.drawImage(bottleImg, x + (w - iw) / 2, y, iw, h);
+    return;
+  }
   const nl = x + w * 0.34;
   const nr = x + w * 0.66;
 
